@@ -11,6 +11,7 @@ export class StuntSystem {
     this.airDuration = 0;
     this.flightDuration = 0;
     this.closeCallCooldown = 0;
+    this.closeCallConfirmTimer = 0;
 
     this.onLanded = (data) => this.handleLanding(data);
     eventBus.on(Events.PLAYER_LANDED, this.onLanded);
@@ -21,6 +22,7 @@ export class StuntSystem {
     this.airDuration = 0;
     this.flightDuration = 0;
     this.closeCallCooldown = 0;
+    this.closeCallConfirmTimer = 0;
   }
 
   handleLanding(data = {}) {
@@ -86,16 +88,23 @@ export class StuntSystem {
       this.flightDuration = 0;
     }
 
-    // 4. Close Call near buildings at high speed
-    if (
+    // 4. Close Call near buildings at high speed (confirm player actually clears the building without colliding)
+    if (this.player.justCollidedTimer > 0) {
+      this.closeCallConfirmTimer = 0;
+    } else if (this.closeCallConfirmTimer > 0) {
+      this.closeCallConfirmTimer -= dt;
+      if (this.closeCallConfirmTimer <= 0) {
+        this.closeCallCooldown = STUNTS.CLOSE_CALL_COOLDOWN;
+        gameState.registerStunt('close_call', 'CLOSE CALL!', STUNTS.POINTS.CLOSE_CALL);
+      }
+    } else if (
       this.closeCallCooldown === 0 &&
-      Math.abs(this.player.speed) > 34 &&
+      Math.abs(this.player.speed) > 36 &&
       this.player.closestBuildingDist !== undefined &&
-      this.player.closestBuildingDist > 1.9 &&
+      this.player.closestBuildingDist > 2.3 &&
       this.player.closestBuildingDist < STUNTS.CLOSE_CALL_DIST
     ) {
-      this.closeCallCooldown = STUNTS.CLOSE_CALL_COOLDOWN;
-      gameState.registerStunt('close_call', 'CLOSE CALL!', STUNTS.POINTS.CLOSE_CALL);
+      this.closeCallConfirmTimer = 0.18;
     }
 
     // 5. Sky Rings collection

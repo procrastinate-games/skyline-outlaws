@@ -163,10 +163,11 @@ export class CityBuilder {
       { x: -55, z: -25, w: 28, d: 24, h: 52, color: 0x221c35, accent: 0xffbe0b, hasHelipad: false },
       { x: 55, z: -25, w: 28, d: 24, h: 48, color: 0x1a243a, accent: 0xff007f, hasHelipad: true },
 
-      // North Spire District (tall skyscraper canyon)
+      // North Spire District (tall skyscraper canyon flanking Neon Boulevard)
       { x: -34, z: -195, w: 24, d: 24, h: 82, color: 0x141e38, accent: 0x00f5d4, hasHelipad: true },
       { x: 34, z: -195, w: 24, d: 24, h: 78, color: 0x1e1836, accent: 0xff007f, hasHelipad: true },
-      { x: 0, z: -245, w: 30, d: 26, h: 95, color: 0x16203a, accent: 0xffbe0b, hasHelipad: true },
+      { x: -42, z: -260, w: 28, d: 26, h: 95, color: 0x16203a, accent: 0xffbe0b, hasHelipad: true },
+      { x: 42, z: -260, w: 28, d: 26, h: 92, color: 0x192340, accent: 0x00f2fe, hasHelipad: true },
 
       // West Harbor / Industrial District
       { x: -165, z: 80, w: 34, d: 28, h: 28, color: 0x23293a, accent: 0xff6b00, hasHelipad: false },

@@ -117,12 +117,21 @@ test('police chase transitions from pursuit to escaped or busted', () => {
   assert.equal(gameState.pursuit.heat, 1);
   assert.ok(police.units.length >= 2, 'Should spawn police cruisers');
 
-  // Move player high and far away so escape progress completes
+  // Fly high and fast in a wide sky arc in Jet Flight Mode so player outruns police cruisers & drone
   player.mode = 'FLIGHT';
-  player.position.set(220, 85, -220);
-  player.speed = 65;
+  player.position.set(0, 75, 120);
+  player.speed = 95;
 
   for (let i = 0; i < 200; i++) {
+    player.update(0.1, {
+      throttle: 1,
+      brake: 0,
+      steer: 0.28,
+      drift: false,
+      boost: true,
+      pitch: 0.12,
+      flightToggleJustPressed: false,
+    });
     police.update(0.1);
     stunts.update(0.1);
     if (!gameState.pursuit.active) break;
@@ -135,6 +144,7 @@ test('police chase transitions from pursuit to escaped or busted', () => {
   player.mode = 'DRIVE';
   player.position.set(0, 0.6, 80);
   player.speed = 0;
+  player.isBoosting = false;
   police.startPursuit(2);
 
   let bustedEventFired = false;

@@ -114,21 +114,30 @@ export class PoliceSystem {
   ensureUnitCount() {
     const heat = gameState.pursuit.heat;
     const targetCount = POLICE.MAX_UNITS_PER_HEAT[heat] || 2;
-    const slotAngles = [-0.48, 0.48, -0.95, 0.95];
+    // Flanking / intercept slots relative to player (forward > 0 is in front of player, clearly visible on camera!)
+    const formationSlots = [
+      { forward: 2.5, right: -8.6, spawnForward: 26, spawnRight: -16, isDrone: false },
+      { forward: 7.5, right: 0, spawnForward: 30, spawnRight: 8, isDrone: true, heightOffset: 6.5 },
+      { forward: 2.0, right: 8.6, spawnForward: 24, spawnRight: 16, isDrone: false },
+      { forward: 6.0, right: 6.5, spawnForward: 32, spawnRight: -12, isDrone: true, heightOffset: 8.5 },
+    ];
+
+    const heading = this.player.heading || 0;
+    const fwdX = -Math.sin(heading);
+    const fwdZ = -Math.cos(heading);
+    const rightX = Math.cos(heading);
+    const rightZ = -Math.sin(heading);
 
     while (this.units.length < targetCount) {
       const idx = this.units.length;
-      const isDrone = heat >= 2 && idx === targetCount - 1;
+      const slot = formationSlots[idx % formationSlots.length];
+      const isDrone = slot.isDrone;
       const built = isDrone ? this.buildDroneMesh() : this.buildCruiserMesh();
 
-      // Spawn behind/around the player at a safe pursuit distance
-      const heading = this.player.heading || 0;
-      const slotOffset = slotAngles[idx % slotAngles.length];
-      const spawnAngle = heading + slotOffset;
-      const dist = 30 + idx * 7;
-      const sx = this.player.position.x + Math.sin(spawnAngle) * dist;
-      const sz = this.player.position.z + Math.cos(spawnAngle) * dist;
-      const sy = isDrone ? Math.max(16, this.player.position.y + 8) : 0.55;
+      // Spawn ahead-diagonal of the player so units visibly sweep in from city avenues
+      const sx = this.player.position.x + fwdX * slot.spawnForward + rightX * slot.spawnRight;
+      const sz = this.player.position.z + fwdZ * slot.spawnForward + rightZ * slot.spawnRight;
+      const sy = isDrone ? Math.max(14, this.player.position.y + (slot.heightOffset || 6.5)) : 0.55;
 
       built.group.position.set(sx, sy, sz);
       this.root.add(built.group);
@@ -139,8 +148,9 @@ export class PoliceSystem {
         leftStrobe: built.leftStrobe,
         rightStrobe: built.rightStrobe,
         speed: isDrone ? POLICE.DRONE_BASE_SPEED : POLICE.CRUISER_BASE_SPEED + idx * 2.5,
-        slotAngle: slotOffset,
-        standoff: POLICE.STANDOFF_DISTANCE + (idx % 2) * 2.5,
+        slotForward: slot.forward,
+        slotRight: slot.right,
+        heightOffset: slot.heightOffset || 6.5,
       });
     }
   }
@@ -180,7 +190,7 @@ export class PoliceSystem {
     if (!gameState.pursuit.active) {
       if (this.graceTimer > 0) {
         this.graceTimer = Math.max(0, this.graceTimer - dt);
-      } else if (gameState.score >= POLICE.TRIGGER_SCORE_THRESHOLD && this.player.speed > 28) {
+      } else if (gameState.score >= POLICE.TRIGGER_SCORE_THRESHOLD) {
         const autoHeat = gameState.score > 4500 ? 3 : gameState.score > 1800 ? 2 : 1;
         this.startPursuit(autoHeat);
       }
@@ -200,34 +210,41 @@ export class PoliceSystem {
     let minUnitDist = Infinity;
     const strobeToggle = Math.floor(this.strobeClock) % 2 === 0;
     const playerHeading = this.player.heading || 0;
+    const fwdX = -Math.sin(playerHeading);
+    const fwdZ = -Math.cos(playerHeading);
+    const rightX = Math.cos(playerHeading);
+    const rightZ = -Math.sin(playerHeading);
+
+    const playerEscapingFast =
+      this.player.isBoosting ||
+      (this.player.mode === 'FLIGHT' && this.player.position.y > 14 && this.player.speed > 45);
 
     for (let i = 0; i < this.units.length; i++) {
       const unit = this.units[i];
       unit.leftStrobe.visible = strobeToggle;
       unit.rightStrobe.visible = !strobeToggle;
 
-      // Tactical formation target behind/flanking the player at standoff distance
-      const formationAngle = playerHeading + (unit.slotAngle || 0);
-      const standoffDist = unit.standoff || POLICE.STANDOFF_DISTANCE;
-      const targetX = this.player.position.x + Math.sin(formationAngle) * standoffDist;
-      const targetZ = this.player.position.z + Math.cos(formationAngle) * standoffDist;
+      // Tactical visible flanking/boxing-in pocket around the player
+      const targetX = this.player.position.x + fwdX * unit.slotForward + rightX * unit.slotRight;
+      const targetZ = this.player.position.z + fwdZ * unit.slotForward + rightZ * unit.slotRight;
 
       const toTargetX = targetX - unit.mesh.position.x;
       const toTargetZ = targetZ - unit.mesh.position.z;
       const distToTarget = Math.hypot(toTargetX, toTargetZ);
 
       const heatSpeedBoost = 1 + (gameState.pursuit.heat - 1) * 0.08;
-      const maxUnitSpeed = unit.speed * heatSpeedBoost;
+      let maxUnitSpeed = unit.speed * heatSpeedBoost;
+      if (!playerEscapingFast && this.player.mode === 'DRIVE' && distToTarget > 16) {
+        // Gentle catch-up during normal ground driving so police stay engaged until you boost or take flight
+        maxUnitSpeed = Math.max(maxUnitSpeed, Math.min(maxUnitSpeed * 1.15, Math.abs(this.player.speed) * 0.99));
+      }
 
-      if (distToTarget > 0.6) {
+      if (distToTarget > 0.5) {
         const dirX = toTargetX / distToTarget;
         const dirZ = toTargetZ / distToTarget;
-        // Smoothly throttle down as unit reaches its standoff formation pocket
-        const approachFactor = Math.min(1, distToTarget / 10);
-        const desiredSpeed = Math.max(
-          Math.min(this.player.speed * 0.95, maxUnitSpeed),
-          maxUnitSpeed * approachFactor
-        );
+        const approachFactor = Math.min(1, distToTarget / 8);
+        const matchPlayerSpeed = Math.min(Math.abs(this.player.speed) * 1.02, maxUnitSpeed);
+        const desiredSpeed = Math.max(matchPlayerSpeed, maxUnitSpeed * approachFactor);
         const step = Math.min(distToTarget, desiredSpeed * dt);
         unit.mesh.position.x += dirX * step;
         unit.mesh.position.z += dirZ * step;
@@ -264,7 +281,7 @@ export class PoliceSystem {
       }
 
       if (unit.type === 'drone') {
-        const targetY = Math.max(9, this.player.position.y + 4.5);
+        const targetY = Math.max(8, this.player.position.y + (unit.heightOffset || 6.5));
         unit.mesh.position.y += (targetY - unit.mesh.position.y) * Math.min(1, 3.2 * dt);
       } else {
         const surf = this.city.getSurfaceAt(unit.mesh.position.x, unit.mesh.position.z, unit.mesh.position.y);
@@ -273,7 +290,7 @@ export class PoliceSystem {
         this.city.resolveHorizontalCollision(unit.mesh.position, 1.8);
       }
 
-      // Face toward the player cleanly
+      // Face along pursuit velocity / toward player
       const lookDx = this.player.position.x - unit.mesh.position.x;
       const lookDz = this.player.position.z - unit.mesh.position.z;
       const lookDy = this.player.position.y - unit.mesh.position.y;

@@ -13,7 +13,12 @@ export function initAudioBridge() {
   });
 
   eventBus.on(Events.AUDIO_TOGGLE_MUTE, () => {
+    sfx.clearPendingTimers();
     audioManager.toggleMute();
+  });
+
+  eventBus.on(Events.GAME_RESTART, () => {
+    sfx.clearPendingTimers();
   });
 
   eventBus.on(Events.MODE_CHANGED, ({ mode }) => {

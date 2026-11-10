@@ -316,6 +316,7 @@ export class HUD {
     const pTitle = byId('hud-pursuit-title');
     const pSub = byId('hud-pursuit-sub');
     const pBar = byId('hud-pursuit-bar');
+    const cWrap = byId('hud-capture-wrap');
     const cLabel = byId('hud-capture-label');
     const cPct = byId('hud-capture-pct');
     const cBar = byId('hud-capture-bar');
@@ -323,6 +324,9 @@ export class HUD {
     const capturePct = Math.min(100, Math.round((gameState.pursuit.captureProgress || 0) * 100));
     if (cPct) cPct.textContent = `${capturePct}%`;
     if (cBar) cBar.style.width = `${capturePct}%`;
+    if (cWrap) {
+      cWrap.classList.toggle('hidden', !gameState.pursuit.active && capturePct === 0);
+    }
     if (pBanner) {
       pBanner.classList.toggle('danger-pulse', gameState.pursuit.active && capturePct >= 45);
     }

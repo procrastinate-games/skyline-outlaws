@@ -212,6 +212,9 @@ export class PlayerVehicle {
     this.isDrifting = false;
     this.isBoosting = false;
     this.currentSurface = 'ground';
+    this.collisionCooldown = 0;
+    this.justCollidedTimer = 0;
+    this.closestBuildingDist = Infinity;
 
     this.refreshAppearance();
     this.syncMeshTransform();
@@ -237,6 +240,13 @@ export class PlayerVehicle {
 
   update(dt, input) {
     const stats = gameState.getVehicleStats();
+
+    if (this.collisionCooldown > 0) {
+      this.collisionCooldown = Math.max(0, this.collisionCooldown - dt);
+    }
+    if (this.justCollidedTimer > 0) {
+      this.justCollidedTimer = Math.max(0, this.justCollidedTimer - dt);
+    }
 
     if (input.flightToggleJustPressed) {
       this.toggleMode();
@@ -422,8 +432,12 @@ export class PlayerVehicle {
     this.closestBuildingDist = col.minDistance;
     if (col.collided) {
       const impact = Math.abs(this.speed);
-      this.speed *= 0.45;
-      eventBus.emit(Events.PLAYER_COLLISION, { impactSpeed: impact });
+      this.speed *= 0.35;
+      this.justCollidedTimer = 0.85;
+      if (this.collisionCooldown <= 0 && impact > 10) {
+        this.collisionCooldown = 0.55;
+        eventBus.emit(Events.PLAYER_COLLISION, { impactSpeed: impact });
+      }
     }
   }
 
@@ -500,8 +514,23 @@ export class PlayerVehicle {
     const col = this.city.resolveHorizontalCollision(this.position, 1.9);
     this.closestBuildingDist = col.minDistance;
     if (col.collided) {
-      this.speed = Math.max(PHYSICS.FLIGHT_MIN_CRUISE_SPEED, this.speed * 0.65);
-      eventBus.emit(Events.PLAYER_COLLISION, { impactSpeed: this.speed });
+      const impact = Math.abs(this.speed);
+      this.speed = Math.max(12, this.speed * 0.45);
+      this.justCollidedTimer = 0.85;
+      if (col.hitBuilding) {
+        // Gently deflect heading away from the building wall so player glances off instead of grinding
+        const awayX = this.position.x - col.hitBuilding.x;
+        const awayZ = this.position.z - col.hitBuilding.z;
+        const awayHeading = Math.atan2(-awayX, -awayZ);
+        let diff = awayHeading - this.heading;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        this.heading += diff * 0.45;
+      }
+      if (this.collisionCooldown <= 0 && impact > 14) {
+        this.collisionCooldown = 0.55;
+        eventBus.emit(Events.PLAYER_COLLISION, { impactSpeed: impact });
+      }
     }
   }
 
