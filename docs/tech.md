@@ -12,14 +12,14 @@
 |---------|---------|---------|
 | `three` | `^0.180.0` | 3D rendering, custom vehicle/city geometry, instanced city props, lighting, camera, and particles |
 | `vite` | `8.3.6` | Local dev server and static production bundler (`base: './'`, output `dist/`) |
-| `@playwright/test` | `1.65.0` | Headless Chromium production smoke verification (`scripts/platform/smoke.mjs`) and browser E2E checks |
+| `@playwright/test` | `1.65.0` | Browser E2E checks (the production smoke test runs in the shared game-publisher workflow) |
 | `wrangler` | `4.159.0` | Cloudflare Workers static asset deployment in GitHub Actions |
 
 ## Tooling
 
 - **Package manager:** `npm` (Node `>=22.12`)
 - **Build:** `npm run build` (`vite build` → `dist/`)
-- **Testing:** `npm test` (`node --test tests/*.test.js` covering manifest schema validation and deterministic gameplay simulation tests) + `node scripts/platform/smoke.mjs`
+- **Testing:** `npm test` (`node --test tests/*.test.js` covering deterministic gameplay simulation tests); `game.json` validation and the production smoke test run in the shared game-publisher workflow
 - **Asset / binary storage:** Procedural 3D meshes, materials, and Web Audio synthesis — zero external runtime assets required; static `public/cover.webp` (960×600) for portal catalog.
 
 ## Project layout

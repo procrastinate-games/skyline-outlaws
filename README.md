@@ -22,6 +22,5 @@ A 3D arcade driving, flying-car stunt, and police-chase playground built with Th
 npm install
 npm test
 npm run build
-node scripts/platform/validate.mjs skyline-outlaws
-node scripts/platform/smoke.mjs
+npx --yes github:procrastinate-games/game-publisher#v1
 ```
