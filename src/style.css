@@ -156,6 +156,38 @@ canvas {
   transition: width 0.12s linear;
 }
 
+.capture-meter-wrap {
+  margin-top: 7px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.capture-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #ff9e00;
+}
+
+.capture-track {
+  height: 8px;
+  background: rgba(255, 22, 84, 0.18);
+  border: 1px solid rgba(255, 22, 84, 0.45);
+}
+
+.capture-fill {
+  background: linear-gradient(90deg, #ffbe0b, #ff1654);
+  box-shadow: 0 0 10px rgba(255, 22, 84, 0.75);
+}
+
+.pursuit-banner.danger-pulse {
+  border-color: #ff1654;
+  box-shadow: 0 0 22px rgba(255, 22, 84, 0.55);
+}
+
 .context-prompt {
   padding: 6px 14px;
   border-radius: 999px;

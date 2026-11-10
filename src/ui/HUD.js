@@ -39,6 +39,15 @@ export class HUD {
             <div class="progress-track">
               <div class="progress-fill" id="hud-pursuit-bar"></div>
             </div>
+            <div class="capture-meter-wrap" id="hud-capture-wrap">
+              <div class="capture-header">
+                <span id="hud-capture-label">ARREST METER</span>
+                <span id="hud-capture-pct">0%</span>
+              </div>
+              <div class="progress-track capture-track">
+                <div class="progress-fill capture-fill" id="hud-capture-bar"></div>
+              </div>
+            </div>
           </div>
 
           <div class="context-prompt" id="hud-context-prompt">
@@ -303,26 +312,50 @@ export class HUD {
     byId('hud-hull-bar').style.width = `${Math.round((gameState.integrity / gameState.maxIntegrity) * 100)}%`;
 
     // Pursuit & Challenge banner
+    const pBanner = byId('hud-pursuit-banner');
     const pTitle = byId('hud-pursuit-title');
     const pSub = byId('hud-pursuit-sub');
     const pBar = byId('hud-pursuit-bar');
+    const cLabel = byId('hud-capture-label');
+    const cPct = byId('hud-capture-pct');
+    const cBar = byId('hud-capture-bar');
+
+    const capturePct = Math.min(100, Math.round((gameState.pursuit.captureProgress || 0) * 100));
+    if (cPct) cPct.textContent = `${capturePct}%`;
+    if (cBar) cBar.style.width = `${capturePct}%`;
+    if (pBanner) {
+      pBanner.classList.toggle('danger-pulse', gameState.pursuit.active && capturePct >= 45);
+    }
 
     if (gameState.activeChallenge) {
       const ch = gameState.activeChallenge;
       pTitle.textContent = `BLITZ: ${ch.title.toUpperCase()}`;
       pSub.textContent = `${ch.progress}/${ch.targetValue} · ${Math.ceil(ch.timeLeft)}s`;
       pBar.style.width = `${Math.min(100, Math.round((ch.progress / ch.targetValue) * 100))}%`;
+      if (cLabel) {
+        cLabel.textContent =
+          capturePct > 0 ? 'ARREST RISK — SPEED UP OR FLY!' : 'ARREST METER';
+      }
     } else if (gameState.pursuit.active) {
       const stars = '★'.repeat(gameState.pursuit.heat);
       pTitle.textContent = `POLICE PURSUIT ${stars}`;
       pSub.textContent = gameState.pursuit.inSight
-        ? 'INTERCEPTORS IN SIGHT — FLY HIGH OR BOOST!'
+        ? `ESCAPE: 0% (BREAK LINE OF SIGHT)`
         : `ESCAPING... ${Math.round(gameState.pursuit.escapeProgress * 100)}%`;
       pBar.style.width = `${Math.round(gameState.pursuit.escapeProgress * 100)}%`;
+      if (cLabel) {
+        cLabel.textContent =
+          capturePct > 0
+            ? 'ARRESTING — BOOST [SHIFT] OR FLY [F]!'
+            : 'ARREST METER (OUTRUNNING)';
+      }
     } else {
       pTitle.textContent = 'METRO PATROL: CLEAR';
       pSub.textContent = 'PERFORM STUNTS OR PRESS [V] FOR CHASE';
       pBar.style.width = `${Math.min(100, Math.round((gameState.score / 450) * 100))}%`;
+      if (cLabel) {
+        cLabel.textContent = 'ARREST METER';
+      }
     }
 
     // Dynamic First-60-Seconds Contextual Guidance

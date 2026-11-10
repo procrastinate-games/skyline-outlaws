@@ -47,6 +47,7 @@ class GameState {
       active: false,
       heat: 0,
       escapeProgress: 0,
+      captureProgress: 0,
       inSight: false,
       timeActive: 0,
     };

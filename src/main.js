@@ -43,6 +43,7 @@ window.render_game_to_text = () => {
       heat: gameState.pursuit.heat,
       inSight: gameState.pursuit.inSight,
       escapeProgress: Math.round(gameState.pursuit.escapeProgress * 100) / 100,
+      captureProgress: Math.round((gameState.pursuit.captureProgress || 0) * 100) / 100,
       units: game.police.units.length,
     },
     activeChallenge: gameState.activeChallenge

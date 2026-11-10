@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { eventBus, Events } from '../src/core/EventBus.js';
 import { gameState } from '../src/core/GameState.js';
-import { STORAGE_KEY } from '../src/core/Constants.js';
+import { STORAGE_KEY, POLICE } from '../src/core/Constants.js';
 import { CityBuilder } from '../src/level/CityBuilder.js';
 import { PlayerVehicle } from '../src/gameplay/PlayerVehicle.js';
 import { StuntSystem } from '../src/systems/StuntSystem.js';
@@ -131,14 +131,45 @@ test('police chase transitions from pursuit to escaped or busted', () => {
   assert.equal(gameState.pursuit.active, false, 'Player should escape police when far out of range');
   assert.ok(gameState.escapes >= 1, 'Escape counter should increment');
 
-  // Start another pursuit and reduce hull integrity to 0 -> BUSTED
+  // Start another pursuit and verify police maintain standoff distance and fill captureProgress bar
+  player.mode = 'DRIVE';
+  player.position.set(0, 0.6, 80);
+  player.speed = 0;
   police.startPursuit(2);
+
   let bustedEventFired = false;
   eventBus.on(Events.PLAYER_BUSTED, () => {
     bustedEventFired = true;
   });
 
-  police.applyDamage(100);
+  // Step 2.5 seconds: police close in to standoff distance, capture bar partially fills (not instant bust)
+  for (let i = 0; i < 25; i++) {
+    police.update(0.1);
+  }
+
+  for (const unit of police.units) {
+    const horizDist = Math.hypot(
+      unit.mesh.position.x - player.position.x,
+      unit.mesh.position.z - player.position.z
+    );
+    assert.ok(
+      horizDist >= POLICE.MIN_PLAYER_DISTANCE - 0.5,
+      `Police unit should keep standoff distance >= ${POLICE.MIN_PLAYER_DISTANCE}, got ${horizDist}`
+    );
+  }
+  assert.equal(gameState.busted, false, 'Should not bust player in the first 2.5 seconds');
+  assert.ok(
+    gameState.pursuit.captureProgress > 0.15 && gameState.pursuit.captureProgress < 0.9,
+    `Expected captureProgress to be filling gradually, got ${gameState.pursuit.captureProgress}`
+  );
+
+  // Continue stationary until captureProgress reaches 100% -> BUSTED
+  for (let i = 0; i < 60; i++) {
+    police.update(0.1);
+    if (gameState.busted) break;
+  }
+
+  assert.equal(gameState.pursuit.captureProgress, 1);
   assert.equal(gameState.busted, true);
   assert.equal(bustedEventFired, true);
 });

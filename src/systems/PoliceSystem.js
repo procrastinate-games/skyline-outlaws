@@ -25,6 +25,7 @@ export class PoliceSystem {
     gameState.pursuit.active = false;
     gameState.pursuit.heat = 0;
     gameState.pursuit.escapeProgress = 0;
+    gameState.pursuit.captureProgress = 0;
     gameState.pursuit.inSight = false;
     gameState.pursuit.timeActive = 0;
   }
@@ -98,6 +99,9 @@ export class PoliceSystem {
     gameState.pursuit.active = true;
     gameState.pursuit.heat = Math.max(gameState.pursuit.heat, heat);
     gameState.pursuit.escapeProgress = 0;
+    if (!wasActive) {
+      gameState.pursuit.captureProgress = 0;
+    }
     gameState.pursuit.inSight = true;
 
     this.ensureUnitCount();
@@ -110,18 +114,21 @@ export class PoliceSystem {
   ensureUnitCount() {
     const heat = gameState.pursuit.heat;
     const targetCount = POLICE.MAX_UNITS_PER_HEAT[heat] || 2;
+    const slotAngles = [-0.48, 0.48, -0.95, 0.95];
 
     while (this.units.length < targetCount) {
       const idx = this.units.length;
       const isDrone = heat >= 2 && idx === targetCount - 1;
       const built = isDrone ? this.buildDroneMesh() : this.buildCruiserMesh();
 
-      // Spawn ahead/around the player outside immediate collision radius
-      const angle = (idx / targetCount) * Math.PI * 2 + 0.4;
-      const dist = 34 + idx * 8;
-      const sx = this.player.position.x + Math.sin(angle) * dist;
-      const sz = this.player.position.z + Math.cos(angle) * dist;
-      const sy = isDrone ? Math.max(18, this.player.position.y + 8) : 0.55;
+      // Spawn behind/around the player at a safe pursuit distance
+      const heading = this.player.heading || 0;
+      const slotOffset = slotAngles[idx % slotAngles.length];
+      const spawnAngle = heading + slotOffset;
+      const dist = 30 + idx * 7;
+      const sx = this.player.position.x + Math.sin(spawnAngle) * dist;
+      const sz = this.player.position.z + Math.cos(spawnAngle) * dist;
+      const sy = isDrone ? Math.max(16, this.player.position.y + 8) : 0.55;
 
       built.group.position.set(sx, sy, sz);
       this.root.add(built.group);
@@ -131,21 +138,34 @@ export class PoliceSystem {
         mesh: built.group,
         leftStrobe: built.leftStrobe,
         rightStrobe: built.rightStrobe,
-        speed: isDrone ? POLICE.DRONE_BASE_SPEED : POLICE.CRUISER_BASE_SPEED + idx * 3,
+        speed: isDrone ? POLICE.DRONE_BASE_SPEED : POLICE.CRUISER_BASE_SPEED + idx * 2.5,
+        slotAngle: slotOffset,
+        standoff: POLICE.STANDOFF_DISTANCE + (idx % 2) * 2.5,
       });
     }
+  }
+
+  triggerBust() {
+    if (gameState.busted) return;
+    gameState.pursuit.captureProgress = 1;
+    gameState.integrity = 0;
+    gameState.busted = true;
+    gameState.pursuit.active = false;
+    eventBus.emit(Events.PLAYER_BUSTED, {
+      score: gameState.score,
+      bestScore: gameState.bestScore,
+    });
   }
 
   applyDamage(amount) {
     if (gameState.busted) return;
     gameState.integrity = Math.max(0, gameState.integrity - amount);
-    if (gameState.integrity <= 0) {
-      gameState.busted = true;
-      gameState.pursuit.active = false;
-      eventBus.emit(Events.PLAYER_BUSTED, {
-        score: gameState.score,
-        bestScore: gameState.bestScore,
-      });
+    gameState.pursuit.captureProgress = Math.min(
+      1,
+      Math.max(gameState.pursuit.captureProgress, 1 - gameState.integrity / gameState.maxIntegrity)
+    );
+    if (gameState.integrity <= 0 || gameState.pursuit.captureProgress >= 1) {
+      this.triggerBust();
     }
   }
 
@@ -179,35 +199,73 @@ export class PoliceSystem {
 
     let minUnitDist = Infinity;
     const strobeToggle = Math.floor(this.strobeClock) % 2 === 0;
+    const playerHeading = this.player.heading || 0;
 
-    for (const unit of this.units) {
+    for (let i = 0; i < this.units.length; i++) {
+      const unit = this.units[i];
       unit.leftStrobe.visible = strobeToggle;
       unit.rightStrobe.visible = !strobeToggle;
 
-      const dx = this.player.position.x - unit.mesh.position.x;
-      const dz = this.player.position.z - unit.mesh.position.z;
-      const dy = this.player.position.y - unit.mesh.position.y;
+      // Tactical formation target behind/flanking the player at standoff distance
+      const formationAngle = playerHeading + (unit.slotAngle || 0);
+      const standoffDist = unit.standoff || POLICE.STANDOFF_DISTANCE;
+      const targetX = this.player.position.x + Math.sin(formationAngle) * standoffDist;
+      const targetZ = this.player.position.z + Math.cos(formationAngle) * standoffDist;
 
-      const horizDist = Math.hypot(dx, dz) || 0.001;
-      const fullDist = Math.hypot(dx, dy, dz);
-
-      if (fullDist < minUnitDist) {
-        minUnitDist = fullDist;
-      }
-
-      const dirX = dx / horizDist;
-      const dirZ = dz / horizDist;
+      const toTargetX = targetX - unit.mesh.position.x;
+      const toTargetZ = targetZ - unit.mesh.position.z;
+      const distToTarget = Math.hypot(toTargetX, toTargetZ);
 
       const heatSpeedBoost = 1 + (gameState.pursuit.heat - 1) * 0.08;
-      const moveSpeed = unit.speed * heatSpeedBoost;
+      const maxUnitSpeed = unit.speed * heatSpeedBoost;
 
-      unit.mesh.position.x += dirX * moveSpeed * dt;
-      unit.mesh.position.z += dirZ * moveSpeed * dt;
-      unit.mesh.rotation.y = Math.atan2(-dirX, -dirZ);
+      if (distToTarget > 0.6) {
+        const dirX = toTargetX / distToTarget;
+        const dirZ = toTargetZ / distToTarget;
+        // Smoothly throttle down as unit reaches its standoff formation pocket
+        const approachFactor = Math.min(1, distToTarget / 10);
+        const desiredSpeed = Math.max(
+          Math.min(this.player.speed * 0.95, maxUnitSpeed),
+          maxUnitSpeed * approachFactor
+        );
+        const step = Math.min(distToTarget, desiredSpeed * dt);
+        unit.mesh.position.x += dirX * step;
+        unit.mesh.position.z += dirZ * step;
+      }
+
+      // Enforce minimum standoff distance from player so police never slam into the player
+      const dxFromPlayer = unit.mesh.position.x - this.player.position.x;
+      const dzFromPlayer = unit.mesh.position.z - this.player.position.z;
+      const horizDistFromPlayer = Math.hypot(dxFromPlayer, dzFromPlayer) || 0.001;
+      const minStandOff = POLICE.MIN_PLAYER_DISTANCE;
+
+      if (horizDistFromPlayer < minStandOff) {
+        const pushOutX = dxFromPlayer / horizDistFromPlayer;
+        const pushOutZ = dzFromPlayer / horizDistFromPlayer;
+        unit.mesh.position.x = this.player.position.x + pushOutX * minStandOff;
+        unit.mesh.position.z = this.player.position.z + pushOutZ * minStandOff;
+      }
+
+      // Enforce separation between police units so they don't overlap each other
+      for (let j = 0; j < i; j++) {
+        const other = this.units[j];
+        const sepX = unit.mesh.position.x - other.mesh.position.x;
+        const sepZ = unit.mesh.position.z - other.mesh.position.z;
+        const sepDist = Math.hypot(sepX, sepZ) || 0.001;
+        if (sepDist < POLICE.UNIT_SEPARATION) {
+          const push = (POLICE.UNIT_SEPARATION - sepDist) * 0.5;
+          const nx = sepX / sepDist;
+          const nz = sepZ / sepDist;
+          unit.mesh.position.x += nx * push;
+          unit.mesh.position.z += nz * push;
+          other.mesh.position.x -= nx * push;
+          other.mesh.position.z -= nz * push;
+        }
+      }
 
       if (unit.type === 'drone') {
-        const targetY = Math.max(10, this.player.position.y + 2);
-        unit.mesh.position.y += (targetY - unit.mesh.position.y) * Math.min(1, 3.0 * dt);
+        const targetY = Math.max(9, this.player.position.y + 4.5);
+        unit.mesh.position.y += (targetY - unit.mesh.position.y) * Math.min(1, 3.2 * dt);
       } else {
         const surf = this.city.getSurfaceAt(unit.mesh.position.x, unit.mesh.position.z, unit.mesh.position.y);
         const targetY = surf.isRooftop ? 0.55 : surf.height + 0.55;
@@ -215,20 +273,59 @@ export class PoliceSystem {
         this.city.resolveHorizontalCollision(unit.mesh.position, 1.8);
       }
 
-      // Ram / Contact check
-      if (fullDist < 3.7 && this.ramCooldown === 0) {
-        this.ramCooldown = POLICE.RAM_COOLDOWN;
-        this.applyDamage(POLICE.RAM_DAMAGE);
-        eventBus.emit(Events.PLAYER_COLLISION, {
-          impactSpeed: moveSpeed,
-          fromPolice: true,
-        });
+      // Face toward the player cleanly
+      const lookDx = this.player.position.x - unit.mesh.position.x;
+      const lookDz = this.player.position.z - unit.mesh.position.z;
+      const lookDy = this.player.position.y - unit.mesh.position.y;
+      const fullDist = Math.hypot(lookDx, lookDy, lookDz);
+
+      if (fullDist < minUnitDist) {
+        minUnitDist = fullDist;
       }
+
+      unit.mesh.rotation.y = Math.atan2(-lookDx, -lookDz);
     }
 
     // Determine if player is in sight of police or escaping
     const inSight = minUnitDist <= POLICE.DETECTION_RADIUS;
+    const inCaptureZone = minUnitDist <= POLICE.CAPTURE_RADIUS;
     gameState.pursuit.inSight = inSight;
+
+    // Update Capture / Arrest Progress Bar
+    const isOutrunning =
+      this.player.isBoosting ||
+      this.player.speed >= 52 ||
+      (this.player.mode === 'FLIGHT' && this.player.position.y > 14 && this.player.speed >= 32);
+
+    if (inCaptureZone && !isOutrunning) {
+      // Fill faster when stopped/slow, slower when cruising at moderate speed
+      const speedRatio = Math.min(1, this.player.speed / 48);
+      const fillMultiplier = 1.0 - speedRatio * 0.58; // 1.0x at rest -> 0.42x at moderate speed
+      const heatFactor = 1 + (gameState.pursuit.heat - 1) * 0.12;
+      const fillRate = (fillMultiplier * heatFactor) / POLICE.CAPTURE_DURATION;
+
+      gameState.pursuit.captureProgress = Math.min(
+        1,
+        gameState.pursuit.captureProgress + fillRate * dt
+      );
+    } else {
+      // Drain arrest meter when outrunning police, boosting, flying high, or outside capture zone
+      gameState.pursuit.captureProgress = Math.max(
+        0,
+        gameState.pursuit.captureProgress - POLICE.CAPTURE_DECAY_RATE * dt
+      );
+    }
+
+    // Keep integrity mirrored to remaining arrest margin (100% -> 0% as captureProgress goes 0 -> 1)
+    gameState.integrity = Math.max(
+      0,
+      Math.round((1 - gameState.pursuit.captureProgress) * gameState.maxIntegrity)
+    );
+
+    if (gameState.pursuit.captureProgress >= 1) {
+      this.triggerBust();
+      return;
+    }
 
     if (!inSight) {
       gameState.pursuit.escapeProgress = Math.min(
@@ -251,6 +348,7 @@ export class PoliceSystem {
     gameState.pursuit.active = false;
     gameState.pursuit.heat = 0;
     gameState.pursuit.escapeProgress = 0;
+    gameState.pursuit.captureProgress = 0;
     gameState.pursuit.inSight = false;
     gameState.pursuit.timeActive = 0;
     gameState.escapes += 1;
