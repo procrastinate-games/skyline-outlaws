@@ -1,23 +1,25 @@
 {
   "schemaVersion": 1,
-  "slug": "game-template",
-  "status": "draft",
-  "title": "Your game title",
-  "shortDescription": "A short invitation to play.",
-  "description": "Describe the player, goal, and main challenge in two or three sentences.",
-  "primaryCategory": "Casual",
+  "slug": "skyline-outlaws",
+  "status": "published",
+  "title": "Skyline Outlaws: Jet Chase",
+  "shortDescription": "Drive, drift, transform into a jet-powered flying car, and outrun police interceptors across a neon 3D metropolis.",
+  "description": "Take the wheel of an experimental jet-powered sports car in a stylized 3D cyber-sunset city. Hit mega-ramps, deploy retractable aero-wings to fly between skyscrapers and glowing sky rings, chain high-altitude stunt combos, and evade multi-heat police pursuits to set new records and upgrade your garage.",
+  "primaryCategory": "Racing",
   "categories": [
-    "Casual"
+    "Racing",
+    "Action",
+    "Arcade"
   ],
-  "dimension": "2D",
+  "dimension": "3D",
   "controls": [
-    "Describe keyboard controls.",
-    "Describe touch controls."
+    "Desktop: W/S or Up/Down to accelerate/brake (or pitch climb/dive in Flight Mode), A/D or Left/Right to steer/bank, F or Tab to transform between Drive and Jet Flight Mode, Space to drift, Shift/E to boost, G for Garage, C for Challenges, P to pause, R to restart.",
+    "Mobile: Left virtual thumbstick to steer and pitch/accelerate, plus dedicated on-screen touch buttons for Flight Mode, Boost, Drift, Gas, and Brake."
   ],
   "languages": "English",
-  "saveNote": "Describe what is saved locally.",
-  "coverAlt": "Describe the game cover.",
-  "accent": "lime",
+  "saveNote": "High score, credits, unlocked vehicles, paint liveries, performance upgrades, and audio mute preference are saved locally under pg:skyline-outlaws:save.",
+  "coverAlt": "A cyan and magenta futuristic sports car with deployed jet wings and glowing thrusters soaring off a neon ramp between skyscrapers while police interceptors chase below.",
+  "accent": "coral",
   "startQuery": "",
   "featured": false,
   "showSource": false,

@@ -4,8 +4,26 @@
 
 - Use [PlayableIntelligence/game-creator](https://github.com/PlayableIntelligence/game-creator) for game creation and iteration. Read [docs/game-creator.md](docs/game-creator.md) first for loading instructions and the platform integration rules.
 - Default to its `make-game` skill for projects of any complexity; use `viral-game` for a one-session game when that matches the user’s request. Load the relevant engine, design, assets, audio and QA skills as needed. Follow the selected workflow’s planning, state documents, architecture and gameplay verification.
-- This repository is a publishing shell, not a chosen engine or an approved game design. The empty canvas and example test are replaceable starter content. Choose scope, engine and architecture with the user through the skill; keep the publishing contract below.
 - During scaffolding or agents-bootstrap, merge the skill’s game-specific instructions into this file while retaining the platform rules and the link to docs/game-creator.md. Keep CLAUDE.md and GEMINI.md as pointers to AGENTS.md.
+
+## Skyline Outlaws: Jet Chase — Project overview
+
+- **Title & Slug**: `Skyline Outlaws: Jet Chase` (`skyline-outlaws`)
+- **Stack**: JavaScript (ES Modules), Three.js (`^0.180.0`, WebGLRenderer), Vite (`base: './'`, output `dist/`), procedural Web Audio API, `localStorage` (`pg:skyline-outlaws:save`).
+- **Source-of-truth docs**:
+  - [`docs/gameplan.md`](docs/gameplan.md) — Gameplay loop, Drive/Flight rules, stunts, police pursuit, P0/P1 scope.
+  - [`docs/tech.md`](docs/tech.md) — Stack, directory structure, and conventions.
+  - [`docs/architectural-decisions/0001-engine-and-stack.md`](docs/architectural-decisions/0001-engine-and-stack.md) — Engine and custom arcade vehicle/flight solver ADR.
+  - [`docs/milestones/0001-mvp-flying-car-chase.md`](docs/milestones/0001-mvp-flying-car-chase.md) — Active milestone and acceptance criteria.
+  - [`docs/STATE.md`](docs/STATE.md) & [`docs/backlog.md`](docs/backlog.md) — Session state and deferred P2 items.
+- **Architecture**:
+  - `src/core/` — `Constants.js`, `EventBus.js`, `GameState.js`, `Game.js`.
+  - `src/gameplay/` — `PlayerVehicle.js` (stylized futuristic car + retractable wings + thrusters + arcade Drive/Flight physics).
+  - `src/level/` — `CityBuilder.js` (3D cyber-sunset city, roads, bridges, skyscrapers, mega-ramps, rooftop helipads, sky rings).
+  - `src/systems/` — `InputSystem.js` (keyboard + touch), `CameraSystem.js` (speed-reactive 3rd-person chase camera), `StuntSystem.js` (stunts & combos), `PoliceSystem.js` (heat 1–3 cruisers & drones), `ParticleSystem.js` (thrusters, drift sparks, ring bursts).
+  - `src/audio/` — `AudioManager.js`, `AudioBridge.js`, `music.js`, `sfx.js` (procedural Web Audio engine/jet synth, drift screech, siren, stunt chimes, synthwave BGM).
+  - `src/ui/` — `HUD.js` (English main menu, speedometer, Drive/Flight indicator, stunt popups, pursuit gauge, garage/upgrades, blitz challenges, pause/busted overlays).
+- **Commands**: `npm run dev`, `npm test`, `npm run build`, `node scripts/platform/smoke.mjs`.
 
 ## Platform publishing contract
 
