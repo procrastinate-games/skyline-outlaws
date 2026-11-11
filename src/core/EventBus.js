@@ -31,6 +31,9 @@ export const Events = {
   CHALLENGE_COMPLETED: 'challenge:completed',
   CHALLENGE_FAILED: 'challenge:failed',
 
+  // Debug / tuning
+  TUNING_CHANGED: 'tuning:changed',
+
   // Audio
   AUDIO_INIT: 'audio:init',
   AUDIO_TOGGLE_MUTE: 'audio:toggle_mute',

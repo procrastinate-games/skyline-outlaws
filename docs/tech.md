@@ -28,6 +28,7 @@
 src/
 ├── core/
 │   ├── Constants.js       # All vehicle stats, physics tuning, city layout, stunt points, colors, storage keys
+│   ├── Tuning.js          # Live vehicle-feel parameters + presets (Responsive / Reference / Stable)
 │   ├── EventBus.js        # Singleton pub/sub event bus (domain:action naming)
 │   ├── GameState.js       # Centralized state singleton + reset() + pg:skyline-outlaws: persistence
 │   └── Game.js            # Main orchestrator, renderer.setAnimationLoop, resize & lifecycle
@@ -48,6 +49,7 @@ src/
 │   ├── music.js           # Procedural synthwave arcade BGM loop
 │   └── sfx.js             # Engine/jet continuous synth, drift screech, siren, stunt chimes, crash SFX
 ├── ui/
+│   ├── TuningPanel.js     # Developer feel-tuning panel (` key or ?tune), see docs/vehicle-feel.md
 │   └── HUD.js             # English HUD, speedometer, Drive/Flight badge, stunts, pursuit bar, garage/challenges, pause/busted modals
 └── main.js                # Entry point + window.render_game_to_text() + window.advanceTime()
 ```
@@ -57,7 +59,8 @@ src/
 - **Code naming:** `PascalCase` for classes/components, `camelCase` for methods/variables, `UPPER_SNAKE_CASE` for constants and `Events`.
 - **Communication:** Cross-module communication goes through `eventBus` (`src/core/EventBus.js`).
 - **Saves:** Stored in `localStorage` under `pg:skyline-outlaws:save`.
-- **Delta time:** Always clamped via `Math.min(clock.getDelta(), 0.1)`.
+- **Delta time:** Always clamped via `Math.min(clock.getDelta(), 0.1)`; vehicle physics sub-steps at ≤ 1/240 s for frame-rate independent handling.
+- **Vehicle feel:** see [vehicle-feel.md](vehicle-feel.md) for the handling model, presets, debug panel and the most influential parameters.
 
 ## Out-of-scope dependencies
 

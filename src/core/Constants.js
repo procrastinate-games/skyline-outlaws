@@ -136,6 +136,13 @@ export const VISUALS = {
   EXHAUST_STRETCH: 4.5,
   EXHAUST_FLATTEN: 0.6,
   DRIFT_SPARK_SCALE: 0.55,
+  DUST_COLOR: 0x8a8f99,
+  LANDING_DUST_PER_IMPACT: 0.8,
+  LANDING_DUST_MAX: 18,
+  TYRE_SMOKE_MIN_SLIP: 0.09,
+  TYRE_SMOKE_MIN_SPEED: 20,
+  TYRE_SCREECH_MIN_SLIP: 0.07,
+  TYRE_SCREECH_MAX_VOLUME: 0.03,
   TAIL_TRAIL_SCALE: 0.9,
   TAIL_TRAIL_STRETCH: 8.5,
   TAIL_TRAIL_FLATTEN: 0.35,
@@ -279,6 +286,28 @@ export const PHYSICS = {
   START_X: 0,
   START_Y: 0.6,
   START_Z: 120,
+  // Game-feel solver constants (tunable values live in VEHICLE_TUNING)
+  REVERSE_MAX_SPEED: 24,
+  ACCEL_CURVE_FLOOR: 0.08,
+  OVERSPEED_DECAY: 1.2,
+  PARKED_LATERAL_DAMPING: 20,
+  HIGH_SPEED_STEER_START: 25,
+  ACCEL_SMOOTHING: 8,
+  MAX_BODY_PITCH: 0.05,
+  MAX_BODY_ROLL: 0.09,
+  CRASH_STEER_LOSS: 0.7,
+  WALL_HEAD_ON_COS: 0.3,
+  WALL_FULL_FRICTION_IMPACT: 20, // normal impact (m/s) at which the full wallFriction loss applies
+  WALL_GLANCE_RATE: 14, // 1/s: ~95% of the glance swing happens within 0.2 s // |cos| between nose and wall below this = head-on (bounce, no glance)
+  SLIP_MIN_SPEED: 3,
+  CRASH_FULL_STUN_IMPACT: 35,
+  MAX_CRASH_YAW_RATE: 3,
+  COLLISION_EVENT_MIN_IMPACT: 8,
+  COLLISION_EVENT_MIN_IMPACT_FLIGHT: 12,
+  FLIGHT_CEILING: 165,
+  FLIGHT_MIN_SPEED_AFTER_HIT: 12,
+  TERMINAL_FALL_SPEED: 75,
+  ENGINE_CUT_LIFT_KEEP: 0.25,
 };
 
 export const CAMERA_CONFIG = {
@@ -295,6 +324,188 @@ export const CAMERA_CONFIG = {
   MENU_ORBIT_SPEED: 0.22,
   INTRO_DURATION: 1.3,
   INTRO_POS_SMOOTHING: 3.2,
+  SPEED_REFERENCE: 75,
+  PULLBACK_SMOOTHING: 3,
+  MAX_ACCEL_PULLBACK: 2.2,
+  MAX_BRAKE_PUSH_IN: 1.2,
+  SHAKE_DECAY: 9,
+  TRAVEL_LOOK_MIN_SPEED: 5,
+  TRAVEL_LOOK_BLEND: 0.5,
+  FOV_SMOOTHING: 6,
+  LANDING_SHAKE_PER_IMPACT: 0.02,
+  LANDING_SHAKE_MIN_IMPACT: 10,
+};
+
+// ---------------------------------------------------------------------------
+// Vehicle game-feel tuning (live-editable via the debug panel: press ` or open with ?tune)
+// Units: speeds m/s, rates 1/s (exponential response), angles rad, accelerations m/s².
+// The three presets are experimental comparison points, not known values of any reference game.
+// ---------------------------------------------------------------------------
+const REFERENCE_TUNING = {
+  drive: {
+    accelMult: 1.3, // × vehicle acceleration stat
+    accelCurve: 0.55, // exponent on (1 - speed/max): <1 = punchy start that tapers near top speed
+    brakeDecel: 64, // constant, predictable braking
+    coastDrag: 0.32, // exponential drag with throttle released (inertia)
+    rollingDecel: 2.5, // constant rolling resistance while coasting
+    steerRise: 10, // how fast the virtual steering wheel turns in (units/s)
+    steerReturn: 16, // how fast it re-centres on release
+    steerRateMult: 1.0, // × vehicle turnRate stat
+    steerFullSpeed: 12, // below this speed steering authority fades toward 0
+    highSpeedSteer: 0.62, // steering authority at top speed (speed-sensitive steering)
+    yawResponse: 13, // angular response while steering
+    yawDamping: 22, // angular damping on release (kills pendulum / overshoot)
+    lateralGrip: 11, // lateral slip damping (higher = more on rails)
+    slipRecovery: 6, // extra grip when steering is released
+    driftGrip: 3.0, // lateral grip while holding Drift
+    maxSlipAngle: 0.22, // spin-out guard (normal driving)
+    driftMaxSlipAngle: 0.55, // spin-out guard (drifting)
+    cornerRetention: 0.85, // share of scrubbed lateral speed kept as forward speed
+    autoRight: 12, // body auto-stabilisation spring (critically damped, rad/s)
+    bodyRoll: 0.0045, // visual lean per m/s² lateral accel
+    bodyPitch: 0.0025, // visual squat/dive per m/s² longitudinal accel
+    wallRestitution: 0.18,
+    wallFriction: 0.9, // tangential speed kept when scraping a wall
+    wallAlign: 0.6, // share of the angle to the wall the nose swings through on a glancing hit
+    crashSpin: 0.035, // yaw kick per m/s of impact speed
+    crashStunTime: 0.45, // max reduced-steering time after a heavy hit
+    fallGravityMult: 2.2, // gravity multiplier while falling (rising uses normal gravity)
+    airSteer: 0.85, // steering authority while airborne in Drive mode
+    airGrip: 3.5, // how fast the trajectory follows the nose in the air
+    airAccel: 0.3, // share of throttle/brake authority available in the air
+  },
+  flight: {
+    accel: 2.6, // response toward target airspeed
+    yawRateMult: 1.0, // × vehicle flightBankRate stat
+    yawResponse: 8,
+    yawDamping: 11,
+    pitchResponse: 6.5,
+    autoLevel: 3,
+    autoLevelDelay: 0.2, // seconds after releasing pitch before auto-level helps
+    momentum: 6, // how fast velocity aligns with the nose (lower = more drift/inertia)
+    diveRate: 1.0, // dives descend at sin(pitch) × airspeed × diveRate (climbs are thrust-limited)
+    bankAngle: 0.62,
+    takeoffLift: 8, // upward m/s added on take-off (momentum otherwise preserved)
+    takeoffPitch: 0.2,
+    takeoffAssistTime: 0.5,
+    landingMinPitch: -0.45, // flare: steepest dive allowed close to the ground
+    landingAssistHeight: 5,
+    diveSpeedGain: 14, // diving trades altitude for speed (and climbing the reverse)
+  },
+  camera: {
+    posLag: 9, // follow stiffness (higher = tighter)
+    yawLag: 5.5, // heading follow (lower = more of the car's side shows in turns)
+    distance: 10.5,
+    flightDistance: 12.2,
+    height: 3.9,
+    flightHeight: 4.4,
+    distanceSpeed: 2.2, // extra distance at top speed
+    accelPullback: 0.05, // extra distance per m/s² of acceleration
+    fovBase: 62,
+    fovMax: 80,
+    fovBoost: 5,
+  },
+};
+
+const withOverrides = (base, overrides) => ({
+  drive: { ...base.drive, ...overrides.drive },
+  flight: { ...base.flight, ...overrides.flight },
+  camera: { ...base.camera, ...overrides.camera },
+});
+
+export const VEHICLE_TUNING = {
+  DEFAULT_PRESET: 'reference',
+  STORAGE_KEY: 'pg:skyline-outlaws:tuning',
+  MAX_SUBSTEP: 1 / 240, // max physics sub-step for frame-rate independent handling
+  PRESETS: {
+    responsive: withOverrides(REFERENCE_TUNING, {
+      drive: {
+        accelMult: 1.45,
+        accelCurve: 0.4,
+        coastDrag: 0.45,
+        steerRise: 14,
+        steerReturn: 22,
+        yawResponse: 18,
+        yawDamping: 30,
+        highSpeedSteer: 0.72,
+        lateralGrip: 24,
+        slipRecovery: 10,
+        maxSlipAngle: 0.12,
+        bodyRoll: 0.003,
+        crashStunTime: 0.3,
+        wallAlign: 0.75,
+        fallGravityMult: 2.4,
+        airSteer: 1.0,
+        airGrip: 5,
+        airAccel: 0.4,
+      },
+      flight: { yawResponse: 12, yawDamping: 16, pitchResponse: 8, momentum: 8, autoLevelDelay: 0.15, diveRate: 1.1 },
+      camera: { posLag: 14, yawLag: 9, fovMax: 78, accelPullback: 0.03 },
+    }),
+    reference: withOverrides(REFERENCE_TUNING, {}),
+    stable: withOverrides(REFERENCE_TUNING, {
+      drive: {
+        accelMult: 1.1,
+        accelCurve: 0.75,
+        coastDrag: 0.24,
+        steerRise: 4.5,
+        steerReturn: 8,
+        yawResponse: 6,
+        yawDamping: 10,
+        highSpeedSteer: 0.5,
+        lateralGrip: 6.5,
+        slipRecovery: 3,
+        maxSlipAngle: 0.3,
+        bodyRoll: 0.006,
+        bodyPitch: 0.0035,
+        crashStunTime: 0.6,
+        wallAlign: 0.5,
+        fallGravityMult: 1.8,
+        airSteer: 0.6,
+        airGrip: 2.2,
+        airAccel: 0.2,
+      },
+      flight: { yawResponse: 4.5, yawDamping: 6, pitchResponse: 4, momentum: 3.5, autoLevelDelay: 0.35, diveRate: 0.85 },
+      camera: { posLag: 6.5, yawLag: 4, fovMax: 80, accelPullback: 0.07 },
+    }),
+  },
+  // Debug-panel sliders: [group, key, label, min, max, step]
+  SCHEMA: [
+    ['drive', 'accelMult', 'Acceleration', 0.5, 2.5, 0.05],
+    ['drive', 'accelCurve', 'Accel curve', 0.2, 1.5, 0.05],
+    ['drive', 'brakeDecel', 'Braking', 20, 120, 1],
+    ['drive', 'coastDrag', 'Coast drag', 0, 2, 0.02],
+    ['drive', 'steerRise', 'Steer in', 2, 30, 0.5],
+    ['drive', 'steerReturn', 'Steer return', 2, 40, 0.5],
+    ['drive', 'steerRateMult', 'Steer rate', 0.5, 1.6, 0.05],
+    ['drive', 'highSpeedSteer', 'High-speed steer', 0.3, 1, 0.02],
+    ['drive', 'yawResponse', 'Yaw response', 2, 30, 0.5],
+    ['drive', 'yawDamping', 'Angular damping', 2, 40, 0.5],
+    ['drive', 'lateralGrip', 'Lateral grip', 2, 40, 0.5],
+    ['drive', 'slipRecovery', 'Slip recovery', 0, 20, 0.5],
+    ['drive', 'driftGrip', 'Drift grip', 0.5, 10, 0.1],
+    ['drive', 'maxSlipAngle', 'Max slip', 0.05, 0.6, 0.01],
+    ['drive', 'autoRight', 'Auto-stabilise', 4, 30, 0.5],
+    ['drive', 'crashStunTime', 'Crash stun', 0, 1.5, 0.05],
+    ['drive', 'wallAlign', 'Wall glance', 0, 1, 0.05],
+    ['drive', 'fallGravityMult', 'Fall gravity', 1, 3.5, 0.05],
+    ['drive', 'airSteer', 'Air steer', 0, 1.2, 0.05],
+    ['drive', 'airGrip', 'Air grip', 0, 10, 0.1],
+    ['drive', 'airAccel', 'Air throttle', 0, 1, 0.05],
+    ['flight', 'accel', 'Flight accel', 0.5, 8, 0.1],
+    ['flight', 'yawRateMult', 'Flight steer', 0.5, 1.8, 0.05],
+    ['flight', 'yawResponse', 'Flight yaw resp.', 1, 20, 0.5],
+    ['flight', 'pitchResponse', 'Pitch response', 1, 15, 0.5],
+    ['flight', 'autoLevel', 'Auto-level', 0, 8, 0.1],
+    ['flight', 'momentum', 'Flight momentum', 1, 15, 0.5],
+    ['flight', 'diveRate', 'Dive speed', 0.4, 1.5, 0.05],
+    ['camera', 'posLag', 'Camera follow', 2, 25, 0.5],
+    ['camera', 'yawLag', 'Camera yaw lag', 1, 20, 0.5],
+    ['camera', 'distance', 'Camera distance', 6, 18, 0.1],
+    ['camera', 'accelPullback', 'Accel pull-back', 0, 0.15, 0.005],
+    ['camera', 'fovBase', 'FOV base', 50, 80, 1],
+    ['camera', 'fovMax', 'FOV max', 60, 100, 1],
+  ],
 };
 
 export const STUNTS = {

@@ -1,7 +1,14 @@
 import * as THREE from 'three';
-import { COLORS, GAME, PHYSICS, VISUALS } from '../core/Constants.js';
+import { COLORS, GAME, PHYSICS, VEHICLE_TUNING, VISUALS } from '../core/Constants.js';
+import { tuning } from '../core/Tuning.js';
 import { eventBus, Events } from '../core/EventBus.js';
 import { gameState } from '../core/GameState.js';
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const approach = (current, target, maxDelta) =>
+  current < target ? Math.min(target, current + maxDelta) : Math.max(target, current - maxDelta);
+/** Frame-rate independent smoothing factor for an exponential response of the given rate (1/s). */
+const expAlpha = (rate, h) => 1 - Math.exp(-rate * h);
 
 export class PlayerVehicle {
   constructor(scene, city) {
@@ -233,11 +240,25 @@ export class PlayerVehicle {
     this.position.set(PHYSICS.START_X, PHYSICS.START_Y, PHYSICS.START_Z);
     this.velocity.set(0, 0, 0);
     this.heading = 0; // 0 = facing -Z (north along Neon Boulevard)
-    this.speed = 0;
+    this.speed = 0; // Drive: signed forward speed · Flight: airspeed
     this.verticalVelocity = 0;
     this.pitchAngle = 0;
     this.rollAngle = 0;
+    this.pitchVel = 0;
+    this.rollVel = 0;
     this.driftSlipAngle = 0;
+
+    // Game-feel state
+    this.steerAxis = 0; // smoothed "steering wheel" position (-1..1)
+    this.yawRate = 0; // angular velocity around Y (rad/s)
+    this.slipAngle = 0; // angle between body heading and travel direction
+    this.longAccel = 0; // smoothed longitudinal acceleration (m/s²) for camera & body pitch
+    this.latAccel = 0; // lateral acceleration (m/s²) for body roll
+    this.crashStun = 0; // seconds of reduced steering after a heavy hit
+    this.glanceRemaining = 0; // heading still to swing through after a glancing wall hit (applied smoothly)
+    this.groundPitchTarget = 0;
+    this.autoLevelTimer = 0;
+    this.takeoffTimer = 0;
 
     this.mode = 'DRIVE';
     this.wingDeploy = 0;
@@ -265,14 +286,29 @@ export class PlayerVehicle {
     gameState.mode = this.mode;
 
     if (this.mode === 'FLIGHT') {
+      // Take-off keeps the car's full momentum and adds a lift kick instead of snapping speed or pitch
+      const f = tuning.flight;
       this.isGrounded = false;
       this.isDrifting = false;
-      this.speed = Math.max(this.speed, PHYSICS.FLIGHT_MIN_CRUISE_SPEED);
-      this.verticalVelocity = Math.max(this.verticalVelocity, 7.5);
-      this.pitchAngle = Math.max(this.pitchAngle, 0.22);
+      const horizontal = Math.hypot(this.velocity.x, this.velocity.z);
+      this.speed = Math.max(horizontal, PHYSICS.FLIGHT_MIN_CRUISE_SPEED);
+      this.velocity.y = Math.max(this.verticalVelocity, 0) + f.takeoffLift;
+      this.verticalVelocity = this.velocity.y;
+      this.takeoffTimer = f.takeoffAssistTime;
+      this.autoLevelTimer = 0;
+    } else {
+      // Cutting the jets mid-air: most upward momentum is lost so the car starts dropping promptly
+      const vy = this.velocity.y;
+      this.verticalVelocity = vy > 0 ? vy * PHYSICS.ENGINE_CUT_LIFT_KEEP : vy;
+      this.velocity.y = this.verticalVelocity;
+      this.speed = this.forwardSpeed();
     }
 
     eventBus.emit(Events.MODE_CHANGED, { mode: this.mode });
+  }
+
+  forwardSpeed() {
+    return this.velocity.x * -Math.sin(this.heading) + this.velocity.z * -Math.cos(this.heading);
   }
 
   update(dt, input) {
@@ -297,35 +333,41 @@ export class PlayerVehicle {
     } else {
       gameState.boost = Math.min(gameState.maxBoost, gameState.boost + PHYSICS.BOOST_RECHARGE_RATE * dt);
     }
-
     const boostMult = this.isBoosting ? stats.boostMultiplier : 1.0;
 
-    if (this.mode === 'DRIVE') {
-      this.updateDriveMode(dt, input, stats, boostMult);
-    } else {
-      this.updateFlightMode(dt, input, stats, boostMult);
+    // Fixed sub-steps: identical handling at 30, 60 or 144 FPS
+    const steps = Math.max(1, Math.ceil(dt / VEHICLE_TUNING.MAX_SUBSTEP - 1e-6));
+    const h = dt / steps;
+    for (let i = 0; i < steps; i++) {
+      if (this.mode === 'DRIVE') {
+        this.stepDrive(h, input, stats, boostMult);
+      } else {
+        this.stepFlight(h, input, stats, boostMult);
+      }
     }
+
+    this.keepInsideWorld();
 
     // Animate wing deployment (0 in Drive, 1 in Flight)
     const targetWing = this.mode === 'FLIGHT' ? 1 : 0;
-    this.wingDeploy += (targetWing - this.wingDeploy) * Math.min(1, PHYSICS.WING_DEPLOY_SPEED * dt);
-
+    this.wingDeploy += (targetWing - this.wingDeploy) * expAlpha(PHYSICS.WING_DEPLOY_SPEED, dt);
     if (this.leftWing && this.rightWing) {
       this.leftWing.scale.x = 0.15 + 0.85 * this.wingDeploy;
       this.rightWing.scale.x = 0.15 + 0.85 * this.wingDeploy;
     }
 
-    // Spin wheels & steer front wheels
-    const wheelSpin = this.speed * dt * 1.8;
+    // Spin wheels with road speed & steer front wheels with the smoothed steering wheel
+    const wheelSpin = (this.mode === 'DRIVE' ? this.speed : 0) * dt * 1.8;
     for (const w of this.wheels) {
       w.rotation.x -= wheelSpin;
     }
-    const steerAngle = -(input.steer || 0) * 0.42;
+    const steerAngle = -this.steerAxis * 0.42;
     for (const pivot of this.frontWheelPivots) {
       pivot.rotation.y = steerAngle;
     }
 
-    // Scale jet thruster flames dynamically
+    // Scale jet thruster flames dynamically (acceleration makes them flare)
+    const accelFlare = clamp(this.longAccel / 40, 0, 0.5);
     const flameIntensity =
       this.mode === 'FLIGHT'
         ? this.isBoosting
@@ -333,7 +375,7 @@ export class PlayerVehicle {
           : 1.1
         : this.isBoosting
           ? 1.35
-          : Math.max(0.15, (this.speed / stats.maxDriveSpeed) * 0.55);
+          : Math.max(0.15, (Math.abs(this.speed) / stats.maxDriveSpeed) * 0.55 + accelFlare);
 
     for (const flame of this.thrusterFlames) {
       flame.scale.set(
@@ -341,17 +383,6 @@ export class PlayerVehicle {
         0.55 + flameIntensity * 0.35,
         0.25 + flameIntensity * 1.15
       );
-    }
-
-    // Keep inside city world bounds smoothly
-    const bound = GAME.WORLD_BOUNDS;
-    if (Math.abs(this.position.x) > bound) {
-      this.position.x = Math.sign(this.position.x) * bound;
-      this.heading = -this.heading;
-    }
-    if (Math.abs(this.position.z) > bound) {
-      this.position.z = Math.sign(this.position.z) * bound;
-      this.heading = Math.PI - this.heading;
     }
 
     this.syncMeshTransform();
@@ -362,58 +393,144 @@ export class PlayerVehicle {
     gameState.altitude = Math.max(0, Math.round(this.position.y));
   }
 
-  updateDriveMode(dt, input, stats, boostMult) {
-    const throttle = input.throttle || 0;
-    const brake = input.brake || 0;
-    const steer = input.steer || 0;
+  /** Shared smoothed steering wheel: turns in at steerRise, re-centres / counter-steers at steerReturn. */
+  updateSteerAxis(h, input) {
+    const t = tuning.drive;
+    const stunRatio = t.crashStunTime > 0 ? this.crashStun / t.crashStunTime : 0;
+    const authority = 1 - PHYSICS.CRASH_STEER_LOSS * clamp(stunRatio, 0, 1);
+    this.crashStun = Math.max(0, this.crashStun - h);
+
+    // Glancing wall hits swing the nose along the wall over ~0.2 s instead of snapping it in one frame
+    if (this.glanceRemaining !== 0) {
+      const swing = this.glanceRemaining * expAlpha(PHYSICS.WALL_GLANCE_RATE, h);
+      this.heading += swing;
+      this.glanceRemaining -= swing;
+      if (Math.abs(this.glanceRemaining) < 1e-4) this.glanceRemaining = 0;
+    }
+
+    const rawSteer = clamp(input.steer || 0, -1, 1) * authority;
+    const returning = Math.abs(rawSteer) < Math.abs(this.steerAxis) || rawSteer * this.steerAxis < 0;
+    this.steerAxis = approach(this.steerAxis, rawSteer, (returning ? t.steerReturn : t.steerRise) * h);
+  }
+
+  stepDrive(h, input, stats, boostMult) {
+    const t = tuning.drive;
+    const throttle = clamp(input.throttle || 0, 0, 1);
+    const brake = clamp(input.brake || 0, 0, 1);
+    this.updateSteerAxis(h, input);
+
+    // Body-space basis (heading 0 faces -Z)
+    const fx = -Math.sin(this.heading);
+    const fz = -Math.cos(this.heading);
+    const rx = Math.cos(this.heading);
+    const rz = -Math.sin(this.heading);
+    let vf = this.velocity.x * fx + this.velocity.z * fz;
+    let vl = this.velocity.x * rx + this.velocity.z * rz;
+    const vfBefore = vf;
     const maxSpeed = stats.maxDriveSpeed * boostMult;
 
-    if (throttle > 0) {
-      this.speed += stats.acceleration * boostMult * throttle * dt;
-    } else if (brake > 0) {
-      if (this.speed > 1) {
-        this.speed = Math.max(0, this.speed - stats.brakeForce * brake * dt);
+    // 1. Longitudinal: punchy-then-tapering acceleration curve, constant braking, inertial coasting
+    if (this.isGrounded) {
+      if (throttle > 0) {
+        if (vf < -0.5) {
+          vf = Math.min(0, vf + t.brakeDecel * throttle * h);
+        } else if (vf < maxSpeed) {
+          const ratio = clamp(vf / maxSpeed, 0, 1);
+          const curve = Math.max(PHYSICS.ACCEL_CURVE_FLOOR, Math.pow(1 - ratio, t.accelCurve));
+          vf = Math.min(maxSpeed, vf + stats.acceleration * t.accelMult * boostMult * throttle * curve * h);
+        }
+      } else if (brake > 0) {
+        if (vf > 0.5) {
+          vf = Math.max(0, vf - t.brakeDecel * brake * h);
+        } else {
+          vf = Math.max(-PHYSICS.REVERSE_MAX_SPEED, vf - stats.acceleration * 0.6 * brake * h);
+        }
       } else {
-        this.speed = Math.max(-24, this.speed - stats.acceleration * 0.65 * brake * dt);
+        vf *= Math.exp(-t.coastDrag * h);
+        vf = approach(vf, 0, t.rollingDecel * h);
+      }
+
+      if (this.isBoosting && vf >= 0 && vf < maxSpeed * 0.65) {
+        vf += stats.acceleration * 0.9 * h; // nitro kick off the line
+      }
+      if (vf > maxSpeed) {
+        vf = maxSpeed + (vf - maxSpeed) * Math.exp(-PHYSICS.OVERSPEED_DECAY * h);
       }
     } else {
-      const drag = this.isGrounded ? PHYSICS.GROUND_FRICTION : PHYSICS.AIR_DRAG;
-      this.speed *= Math.max(0, 1 - drag * dt);
-      if (Math.abs(this.speed) < 0.2) this.speed = 0;
+      vf *= Math.exp(-PHYSICS.AIR_DRAG * 0.2 * h);
+      if (throttle > 0 && vf < maxSpeed) {
+        vf = Math.min(maxSpeed, vf + stats.acceleration * t.accelMult * t.airAccel * throttle * h);
+      } else if (brake > 0 && vf > 0) {
+        vf = Math.max(0, vf - t.brakeDecel * t.airAccel * brake * h);
+      }
     }
 
-    if (this.isBoosting && this.speed < maxSpeed * 0.65) {
-      this.speed += stats.acceleration * 0.9 * dt;
+    // 2. Lateral grip: slip is damped quickly (micro-slide for weight), never instantly zeroed
+    this.isDrifting = this.isGrounded && Boolean(input.drift) && Math.abs(vf) > 16 && Math.abs(this.steerAxis) > 0.1;
+    if (this.isGrounded) {
+      // While scraping along a wall the car slides sideways (no slip guard) as its nose swings round
+      const scraping = this.glanceRemaining !== 0;
+      const grip = this.isDrifting || scraping
+        ? t.driftGrip
+        : t.lateralGrip + (Math.abs(this.steerAxis) < 0.05 ? t.slipRecovery : 0);
+      const newVl = vl * Math.exp(-grip * h);
+      const scrubbed = Math.abs(vl) - Math.abs(newVl);
+      vl = newVl;
+      if (vf > 0.5) {
+        // Cornering converts scrubbed sideways speed back into forward speed (arcade flow)
+        vf = Math.min(Math.max(vf, maxSpeed), vf + scrubbed * t.cornerRetention);
+      }
+      // Spin-out guard: slip angle can never exceed the configured limit
+      const absVf = Math.abs(vf);
+      if (scraping) {
+        // keep the sideways momentum; grip above re-aligns it smoothly
+      } else if (absVf > 2) {
+        const maxSlip = this.isDrifting ? t.driftMaxSlipAngle : t.maxSlipAngle;
+        const limit = absVf * Math.tan(maxSlip);
+        if (Math.abs(vl) > limit) vl = Math.sign(vl) * limit;
+      } else {
+        vl *= Math.exp(-PHYSICS.PARKED_LATERAL_DAMPING * h);
+      }
+    } else {
+      // Arcade air control: sideways drift relative to the nose bleeds off into forward motion,
+      // so steering mid-air actually changes where the car lands
+      const newVl = vl * Math.exp(-t.airGrip * h);
+      const scrubbed = Math.abs(vl) - Math.abs(newVl);
+      vl = newVl;
+      if (vf > 0.5) vf = Math.min(Math.max(vf, maxSpeed), vf + scrubbed * t.cornerRetention);
     }
-    this.speed = Math.min(maxSpeed, Math.max(-24, this.speed));
 
-    // Drift & steering
-    const canDrift = this.isGrounded && Boolean(input.drift) && Math.abs(this.speed) > 16 && Math.abs(steer) > 0.1;
-    this.isDrifting = canDrift;
+    // 3. Yaw: speed-sensitive steering with angular inertia while steering, strong damping on release
+    const absVf = Math.abs(vf);
+    const lowSpeedFactor = clamp(absVf / t.steerFullSpeed, 0, 1);
+    const highT = clamp(
+      (absVf - PHYSICS.HIGH_SPEED_STEER_START) / Math.max(1, stats.maxDriveSpeed - PHYSICS.HIGH_SPEED_STEER_START),
+      0,
+      1
+    );
+    const speedFactor = lowSpeedFactor * (1 + (t.highSpeedSteer - 1) * highT);
+    const driftMult = this.isDrifting ? stats.driftTurnMultiplier : 1;
+    const direction = vf >= 0 ? 1 : -1;
+    const airControl = this.isGrounded ? 1 : t.airSteer;
+    const targetYaw = this.steerAxis * stats.turnRate * t.steerRateMult * speedFactor * driftMult * direction * airControl;
+    const yawRateConst = Math.abs(this.steerAxis) > 0.02 ? t.yawResponse : t.yawDamping;
+    this.yawRate += (targetYaw - this.yawRate) * expAlpha(yawRateConst, h);
+    this.heading += this.yawRate * h;
 
-    const turnFactor = Math.min(1, Math.abs(this.speed) / 14);
-    const driftMult = this.isDrifting ? stats.driftTurnMultiplier : 1.0;
-    const reverseSign = this.speed >= 0 ? 1 : -1;
-    this.heading += steer * stats.turnRate * driftMult * turnFactor * reverseSign * dt;
+    // Velocity stays in the pre-turn basis, so the body leads the travel direction (natural slip)
+    this.velocity.x = fx * vf + rx * vl;
+    this.velocity.z = fz * vf + rz * vl;
+    this.position.x += this.velocity.x * h;
+    this.position.z += this.velocity.z * h;
 
-    // Visual powerslide slip angle
-    const targetSlip = this.isDrifting ? steer * 0.34 : 0;
-    this.driftSlipAngle += (targetSlip - this.driftSlipAngle) * Math.min(1, 8 * dt);
+    this.speed = vf;
+    this.slipAngle = absVf > PHYSICS.SLIP_MIN_SPEED ? Math.atan2(vl, absVf) : 0;
+    this.longAccel += ((vf - vfBefore) / h - this.longAccel) * expAlpha(PHYSICS.ACCEL_SMOOTHING, h);
+    this.latAccel = this.yawRate * vf;
 
-    // Forward movement vector (heading 0 faces -Z)
-    const forwardX = -Math.sin(this.heading);
-    const forwardZ = -Math.cos(this.heading);
-
-    this.velocity.x = forwardX * this.speed;
-    this.velocity.z = forwardZ * this.speed;
-
-    this.position.x += this.velocity.x * dt;
-    this.position.z += this.velocity.z * dt;
-
-    // Query surface height (ground, ramp, overpass, rooftop)
+    // 4. Vertical: ground, ramps, overpass, rooftops (unchanged arcade surface solver)
     const surface = this.city.getSurfaceAt(this.position.x, this.position.z, this.position.y);
     const targetY = surface.height + 0.55;
-
     const wasGrounded = this.isGrounded;
 
     if (this.position.y <= targetY + 0.25 && this.verticalVelocity <= 4.0) {
@@ -421,10 +538,10 @@ export class PlayerVehicle {
       this.isGrounded = true;
       this.currentSurface = surface.surfaceType;
 
-      if (surface.isRamp && this.speed > 8) {
+      if (surface.isRamp && vf > 8) {
         // Riding up a ramp imparts upward launch velocity!
-        this.verticalVelocity = this.speed * surface.rampSlope * 1.18;
-        this.pitchAngle = Math.atan(surface.rampSlope);
+        this.verticalVelocity = vf * surface.rampSlope * 1.18;
+        this.groundPitchTarget = Math.atan(surface.rampSlope);
       } else {
         if (!wasGrounded && this.verticalVelocity < -6) {
           eventBus.emit(Events.PLAYER_LANDED, {
@@ -434,16 +551,17 @@ export class PlayerVehicle {
           });
         }
         this.verticalVelocity = 0;
-        this.pitchAngle += (0 - this.pitchAngle) * Math.min(1, 10 * dt);
+        this.groundPitchTarget = 0;
       }
     } else {
-      // Airborne jump!
       if (wasGrounded && this.verticalVelocity > 3) {
-        eventBus.emit(Events.PLAYER_JUMP, { speed: this.speed });
+        eventBus.emit(Events.PLAYER_JUMP, { speed: vf });
       }
       this.isGrounded = false;
-      this.verticalVelocity -= PHYSICS.GRAVITY * dt;
-      this.position.y += this.verticalVelocity * dt;
+      // Falling pulls harder than rising: snappy arcs and drops that don't feel floaty
+      const gravity = this.verticalVelocity < 0 ? PHYSICS.GRAVITY * t.fallGravityMult : PHYSICS.GRAVITY;
+      this.verticalVelocity = Math.max(-PHYSICS.TERMINAL_FALL_SPEED, this.verticalVelocity - gravity * h);
+      this.position.y += this.verticalVelocity * h;
 
       if (this.position.y <= targetY) {
         this.position.y = targetY;
@@ -455,125 +573,217 @@ export class PlayerVehicle {
           impactSpeed: Math.abs(this.verticalVelocity),
         });
         this.verticalVelocity = 0;
-      } else {
-        this.pitchAngle = Math.max(-0.45, Math.min(0.45, this.verticalVelocity * 0.02));
       }
     }
+    this.velocity.y = this.verticalVelocity;
 
-    // Subtle body roll into turns
-    const targetRoll = steer * Math.min(1, Math.abs(this.speed) / 40) * (this.isDrifting ? 0.18 : 0.08);
-    this.rollAngle += (targetRoll - this.rollAngle) * Math.min(1, 10 * dt);
+    // 5. Body attitude: critically damped springs (auto-stabilisation without jerks or overshoot)
+    let pitchTarget;
+    let rollTarget;
+    if (this.isGrounded) {
+      pitchTarget = this.groundPitchTarget + clamp(this.longAccel * t.bodyPitch, -PHYSICS.MAX_BODY_PITCH, PHYSICS.MAX_BODY_PITCH);
+      rollTarget = clamp(-this.latAccel * t.bodyRoll, -PHYSICS.MAX_BODY_ROLL, PHYSICS.MAX_BODY_ROLL);
+    } else {
+      pitchTarget = clamp(this.verticalVelocity * 0.02, -0.45, 0.45);
+      rollTarget = 0;
+    }
+    this.springBody(h, pitchTarget, rollTarget, t.autoRight);
 
-    // Building wall collision
+    // 6. Walls: slide along them instead of stopping dead
     const col = this.city.resolveHorizontalCollision(this.position, 1.85);
     this.closestBuildingDist = col.minDistance;
     if (col.collided) {
-      const impact = Math.abs(this.speed);
-      this.speed *= 0.35;
-      this.justCollidedTimer = 0.85;
-      if (this.collisionCooldown <= 0 && impact > 10) {
-        this.collisionCooldown = 0.55;
-        eventBus.emit(Events.PLAYER_COLLISION, { impactSpeed: impact });
-      }
+      this.handleWallHit(col, PHYSICS.COLLISION_EVENT_MIN_IMPACT);
     }
   }
 
-  updateFlightMode(dt, input, stats, boostMult) {
+  stepFlight(h, input, stats, boostMult) {
+    const f = tuning.flight;
     this.isGrounded = false;
     this.isDrifting = false;
-    this.driftSlipAngle *= Math.max(0, 1 - 8 * dt);
+    this.updateSteerAxis(h, input);
 
-    const throttle = input.throttle || 0;
-    const brake = input.brake || 0;
-    const steer = input.steer || 0;
-    const pitchInput = input.pitch || 0;
+    const throttle = clamp(input.throttle || 0, 0, 1);
+    const brake = clamp(input.brake || 0, 0, 1);
+    const pitchInput = clamp(input.pitch || 0, -1, 1);
 
-    const maxFlightSpeed = stats.maxFlightSpeed * boostMult;
-    const targetCruise = throttle > 0
-      ? maxFlightSpeed
-      : brake > 0
-        ? PHYSICS.FLIGHT_MIN_CRUISE_SPEED
-        : stats.maxFlightSpeed * 0.72 * boostMult;
+    // 1. Yaw with inertia (bank-and-turn)
+    const maxYaw = stats.flightBankRate * f.yawRateMult;
+    const targetYaw = this.steerAxis * maxYaw;
+    const yawRateConst = Math.abs(this.steerAxis) > 0.02 ? f.yawResponse : f.yawDamping;
+    this.yawRate += (targetYaw - this.yawRate) * expAlpha(yawRateConst, h);
+    this.heading += this.yawRate * h;
 
-    this.speed += (targetCruise - this.speed) * Math.min(1, 3.2 * dt);
-
-    // Smooth bank & yaw turning
-    this.heading += steer * stats.flightBankRate * dt;
-
-    // Pitch control + gentle auto-level when pitchInput is 0
+    // 2. Pitch: responsive command, auto-level only after a short delay so it never fights manoeuvres
+    this.takeoffTimer = Math.max(0, this.takeoffTimer - h);
+    let targetPitch = 0;
+    let pitchRate = 0;
     if (Math.abs(pitchInput) > 0.05) {
-      const targetPitch = pitchInput * PHYSICS.FLIGHT_MAX_PITCH;
-      this.pitchAngle += (targetPitch - this.pitchAngle) * Math.min(1, 5.5 * dt);
+      targetPitch = pitchInput * PHYSICS.FLIGHT_MAX_PITCH;
+      pitchRate = f.pitchResponse;
+      this.autoLevelTimer = 0;
     } else {
-      this.pitchAngle += (0 - this.pitchAngle) * Math.min(1, PHYSICS.FLIGHT_AUTO_LEVEL_RATE * dt);
+      this.autoLevelTimer += h;
+      pitchRate = this.autoLevelTimer >= f.autoLevelDelay ? f.autoLevel : 0;
     }
+    if (this.takeoffTimer > 0 && targetPitch < f.takeoffPitch) {
+      targetPitch = f.takeoffPitch;
+      pitchRate = Math.max(pitchRate, f.pitchResponse);
+    }
+    const surface = this.city.getSurfaceAt(this.position.x, this.position.z, this.position.y);
+    const altitude = this.position.y - surface.height;
+    if (altitude < f.landingAssistHeight && targetPitch < f.landingMinPitch) {
+      targetPitch = f.landingMinPitch; // landing flare: soften steep dives near the ground
+      pitchRate = Math.max(pitchRate, f.pitchResponse);
+    }
+    const prevPitch = this.pitchAngle;
+    this.pitchAngle += (targetPitch - this.pitchAngle) * expAlpha(pitchRate, h);
+    this.pitchVel = (this.pitchAngle - prevPitch) / h;
 
-    // Bank roll angle with auto-leveling
-    const targetRoll = -steer * PHYSICS.FLIGHT_MAX_ROLL;
-    this.rollAngle += (targetRoll - this.rollAngle) * Math.min(1, 6.5 * dt);
+    // 3. Airspeed: throttle sets the target; diving trades altitude for speed
+    const maxFlight = stats.maxFlightSpeed * boostMult;
+    const targetSpeed =
+      throttle > 0 ? maxFlight : brake > 0 ? PHYSICS.FLIGHT_MIN_CRUISE_SPEED : stats.maxFlightSpeed * 0.72 * boostMult;
+    const prevSpeed = this.speed;
+    this.speed += (targetSpeed - this.speed) * expAlpha(f.accel, h);
+    this.speed -= Math.sin(this.pitchAngle) * f.diveSpeedGain * h;
+    this.speed = clamp(this.speed, PHYSICS.FLIGHT_MIN_CRUISE_SPEED * 0.8, maxFlight * 1.12);
+    this.longAccel += ((this.speed - prevSpeed) / h - this.longAccel) * expAlpha(PHYSICS.ACCEL_SMOOTHING, h);
+    this.latAccel = this.yawRate * this.speed;
 
-    // 3D velocity vector from heading & pitch
+    // 4. Momentum: velocity eases toward the nose direction (take-off speed & direction are preserved)
     const cosPitch = Math.cos(this.pitchAngle);
-    const forwardX = -Math.sin(this.heading) * cosPitch;
-    const forwardZ = -Math.cos(this.heading) * cosPitch;
-    this.verticalVelocity = Math.sin(this.pitchAngle) * stats.flightClimbRate * (this.isBoosting ? 1.3 : 1.0);
-
-    this.velocity.set(forwardX * this.speed, this.verticalVelocity, forwardZ * this.speed);
-    this.position.addScaledVector(this.velocity, dt);
+    const desiredX = -Math.sin(this.heading) * cosPitch * this.speed;
+    const desiredZ = -Math.cos(this.heading) * cosPitch * this.speed;
+    const sinPitch = Math.sin(this.pitchAngle);
+    const desiredY =
+      sinPitch >= 0
+        ? sinPitch * stats.flightClimbRate * (this.isBoosting ? 1.3 : 1.0)
+        : sinPitch * this.speed * f.diveRate;
+    const m = expAlpha(f.momentum, h);
+    this.velocity.x += (desiredX - this.velocity.x) * m;
+    this.velocity.y += (desiredY - this.velocity.y) * m;
+    this.velocity.z += (desiredZ - this.velocity.z) * m;
+    this.position.addScaledVector(this.velocity, h);
+    this.verticalVelocity = this.velocity.y;
+    this.slipAngle = 0;
 
     // Clamp max ceiling
-    if (this.position.y > 165) {
-      this.position.y = 165;
+    if (this.position.y > PHYSICS.FLIGHT_CEILING) {
+      this.position.y = PHYSICS.FLIGHT_CEILING;
       this.pitchAngle = Math.min(0, this.pitchAngle);
+      this.velocity.y = Math.min(0, this.velocity.y);
     }
 
-    // Check ground/rooftop contact in Flight Mode
-    const surface = this.city.getSurfaceAt(this.position.x, this.position.z, this.position.y);
-    const minFlightY = surface.height + 0.65;
+    // 5. Bank into the turn (left turn = left wing down)
+    const bank = clamp(this.yawRate / Math.max(0.01, maxYaw), -1, 1) * f.bankAngle;
+    this.springBody(h, null, bank, tuning.drive.autoRight * 1.2);
+
+    // 6. Ground / rooftop contact: dive in to land, otherwise skim
+    const contact = this.city.getSurfaceAt(this.position.x, this.position.z, this.position.y);
+    const minFlightY = contact.height + 0.65;
     if (this.position.y <= minFlightY) {
       this.position.y = minFlightY;
       if (this.pitchAngle < -0.15) {
-        // Automatic smooth touchdown transition if diving onto a road or rooftop pad
+        const impactSpeed = Math.abs(this.velocity.y);
         this.toggleMode('DRIVE');
         this.isGrounded = true;
-        this.currentSurface = surface.surfaceType;
+        this.currentSurface = contact.surfaceType;
+        this.velocity.y = 0;
+        this.verticalVelocity = 0;
+        this.speed = this.forwardSpeed();
         eventBus.emit(Events.PLAYER_LANDED, {
-          surfaceType: surface.surfaceType,
-          isRooftop: surface.isRooftop,
-          impactSpeed: Math.abs(this.verticalVelocity),
+          surfaceType: contact.surfaceType,
+          isRooftop: contact.isRooftop,
+          impactSpeed,
         });
-      } else {
-        this.pitchAngle = Math.max(0, this.pitchAngle);
+        return;
       }
+      this.pitchAngle = Math.max(0, this.pitchAngle);
+      this.velocity.y = Math.max(0, this.velocity.y);
     }
 
-    // Horizontal building collision in flight
+    // 7. Walls: glance off and keep flying
     const col = this.city.resolveHorizontalCollision(this.position, 1.9);
     this.closestBuildingDist = col.minDistance;
     if (col.collided) {
-      const impact = Math.abs(this.speed);
-      this.speed = Math.max(12, this.speed * 0.45);
-      this.justCollidedTimer = 0.85;
-      if (col.hitBuilding) {
-        // Gently deflect heading away from the building wall so player glances off instead of grinding
-        const awayX = this.position.x - col.hitBuilding.x;
-        const awayZ = this.position.z - col.hitBuilding.z;
-        const awayHeading = Math.atan2(-awayX, -awayZ);
-        let diff = awayHeading - this.heading;
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        this.heading += diff * 0.45;
-      }
-      if (this.collisionCooldown <= 0 && impact > 14) {
-        this.collisionCooldown = 0.55;
-        eventBus.emit(Events.PLAYER_COLLISION, { impactSpeed: impact });
-      }
+      this.handleWallHit(col, PHYSICS.COLLISION_EVENT_MIN_IMPACT_FLIGHT);
+      this.speed = Math.max(PHYSICS.FLIGHT_MIN_SPEED_AFTER_HIT, Math.hypot(this.velocity.x, this.velocity.z));
+    }
+  }
+
+  /** Remove the into-wall velocity, keep most tangential speed, kick a short spin away from the wall. */
+  handleWallHit(col, minEventImpact) {
+    const t = tuning.drive;
+    const nx = col.normalX;
+    const nz = col.normalZ;
+    const vn = this.velocity.x * nx + this.velocity.z * nz;
+    this.justCollidedTimer = 0.85;
+    if (vn >= 0) return;
+
+    const impact = -vn;
+    const tx = this.velocity.x - nx * vn;
+    const tz = this.velocity.z - nz * vn;
+    // Friction scales with how hard the hit is, so sustained light scraping doesn't bleed speed every sub-step
+    const hitShare = clamp(impact / PHYSICS.WALL_FULL_FRICTION_IMPACT, 0, 1);
+    const keep = 1 - (1 - t.wallFriction) * hitShare;
+    this.velocity.x = tx * keep - nx * vn * t.wallRestitution;
+    this.velocity.z = tz * keep - nz * vn * t.wallRestitution;
+
+    // Glancing hits swing the nose along the wall so the car slides on instead of re-hitting it every frame;
+    // near head-on hits (nose ~perpendicular to the wall) just bounce.
+    const tanX = -nz;
+    const tanZ = nx;
+    const along = -Math.sin(this.heading) * tanX + -Math.cos(this.heading) * tanZ;
+    if (Math.abs(along) > PHYSICS.WALL_HEAD_ON_COS) {
+      const dir = along >= 0 ? 1 : -1;
+      const tangentHeading = Math.atan2(-tanX * dir, -tanZ * dir);
+      const diff = Math.atan2(Math.sin(tangentHeading - this.heading), Math.cos(tangentHeading - this.heading));
+      this.glanceRemaining = diff * t.wallAlign; // overwrite (not accumulate) on repeated contacts
+      // Short spin in the same direction sells the impact; damping removes it within a fraction of a second
+      const kick = Math.sign(diff) * impact * t.crashSpin;
+      this.yawRate = clamp(this.yawRate + kick, -PHYSICS.MAX_CRASH_YAW_RATE, PHYSICS.MAX_CRASH_YAW_RATE);
+    }
+    this.crashStun = Math.max(this.crashStun, t.crashStunTime * clamp(impact / PHYSICS.CRASH_FULL_STUN_IMPACT, 0, 1));
+
+    if (this.collisionCooldown <= 0 && impact > minEventImpact) {
+      this.collisionCooldown = 0.55;
+      eventBus.emit(Events.PLAYER_COLLISION, { impactSpeed: impact });
+    }
+  }
+
+  /** Critically damped spring toward target attitude (null pitch = pitch driven elsewhere). */
+  springBody(h, pitchTarget, rollTarget, omega) {
+    const k = omega * omega;
+    const c = 2 * omega;
+    if (pitchTarget !== null) {
+      this.pitchVel += (k * (pitchTarget - this.pitchAngle) - c * this.pitchVel) * h;
+      this.pitchAngle += this.pitchVel * h;
+    }
+    this.rollVel += (k * (rollTarget - this.rollAngle) - c * this.rollVel) * h;
+    this.rollAngle += this.rollVel * h;
+  }
+
+  /** Bounce off the invisible city limits by mirroring heading and velocity. */
+  keepInsideWorld() {
+    const bound = GAME.WORLD_BOUNDS;
+    if (Math.abs(this.position.x) > bound) {
+      this.position.x = Math.sign(this.position.x) * bound;
+      this.heading = -this.heading;
+      this.velocity.x = -this.velocity.x;
+      this.yawRate = 0;
+    }
+    if (Math.abs(this.position.z) > bound) {
+      this.position.z = Math.sign(this.position.z) * bound;
+      this.heading = Math.PI - this.heading;
+      this.velocity.z = -this.velocity.z;
+      this.yawRate = 0;
     }
   }
 
   syncMeshTransform() {
     this.mesh.rotation.order = 'YXZ';
-    this.mesh.rotation.y = this.heading - this.driftSlipAngle;
+    this.mesh.rotation.y = this.heading;
     this.mesh.rotation.x = this.pitchAngle;
     this.mesh.rotation.z = this.rollAngle;
   }

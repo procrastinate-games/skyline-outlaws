@@ -637,6 +637,93 @@ canvas {
   color: var(--text-soft);
 }
 
+/* Vehicle tuning debug panel (toggle with `) */
+.tuning-panel {
+  position: absolute;
+  top: 90px;
+  right: 12px;
+  width: 300px;
+  max-height: calc(100% - 110px);
+  overflow-y: auto;
+  z-index: 40;
+  pointer-events: auto;
+  background: rgba(20, 22, 27, 0.9);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 11px;
+  color: var(--text-soft);
+  box-shadow: var(--panel-shadow);
+  user-select: none;
+}
+
+.tuning-head,
+.tuning-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tuning-head strong {
+  color: #ffffff;
+  letter-spacing: 0.1em;
+}
+
+.tuning-preset {
+  color: var(--accent-cyan);
+  font-weight: 800;
+}
+
+.tuning-presets {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  margin: 8px 0;
+}
+
+.tuning-telemetry {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  color: var(--accent-gold);
+  margin-bottom: 6px;
+}
+
+.tuning-group {
+  margin: 8px 0 2px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--text-label);
+}
+
+.tuning-row {
+  display: grid;
+  grid-template-columns: 96px 1fr 38px;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+.tuning-row input {
+  width: 100%;
+  accent-color: var(--accent-cyan);
+}
+
+.tuning-row output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+}
+
+.tuning-foot {
+  margin-top: 8px;
+}
+
+.tuning-hint {
+  font-size: 10px;
+  color: var(--text-label);
+}
+
 .hidden {
   display: none !important;
 }

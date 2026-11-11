@@ -1,4 +1,5 @@
 import { audioManager } from './AudioManager.js';
+import { VISUALS } from '../core/Constants.js';
 
 class SfxEngine {
   constructor() {
@@ -8,6 +9,9 @@ class SfxEngine {
     this.windSource = null;
     this.windFilter = null;
     this.windGain = null;
+    this.screechSource = null;
+    this.screechFilter = null;
+    this.screechGain = null;
     this.noiseBuffer = null;
     this.sirenClock = 0;
     this.lastCrashTime = 0;
@@ -75,6 +79,21 @@ class SfxEngine {
       this.windFilter.connect(this.windGain);
       this.windGain.connect(master);
       this.windSource.start();
+
+      // Tyre screech: band-passed noise whose level follows the real lateral slip angle
+      this.screechSource = ctx.createBufferSource();
+      this.screechSource.buffer = buf;
+      this.screechSource.loop = true;
+      this.screechFilter = ctx.createBiquadFilter();
+      this.screechFilter.type = 'bandpass';
+      this.screechFilter.frequency.value = 1700;
+      this.screechFilter.Q.value = 6;
+      this.screechGain = ctx.createGain();
+      this.screechGain.gain.value = 0;
+      this.screechSource.connect(this.screechFilter);
+      this.screechFilter.connect(this.screechGain);
+      this.screechGain.connect(master);
+      this.screechSource.start();
     } catch (_) {
       this.engineOsc = null;
     }
@@ -101,6 +120,7 @@ class SfxEngine {
         const t = audioManager.ctx.currentTime;
         this.engineGain.gain.setTargetAtTime(0, t, 0.06);
         if (this.windGain) this.windGain.gain.setTargetAtTime(0, t, 0.06);
+        if (this.screechGain) this.screechGain.gain.setTargetAtTime(0, t, 0.06);
       }
       return;
     }
@@ -133,6 +153,16 @@ class SfxEngine {
     if (this.windFilter && this.windGain) {
       this.windFilter.frequency.setTargetAtTime(Math.max(160, targetWindCutoff), now, 0.14);
       this.windGain.gain.setTargetAtTime(targetWindVol, now, 0.12);
+    }
+
+    if (this.screechGain) {
+      const slip = Math.abs(player.slipAngle || 0);
+      const sliding = player.mode === 'DRIVE' && player.isGrounded && Math.abs(player.speed) > 15;
+      const amount = sliding ? Math.min(1, Math.max(0, (slip - VISUALS.TYRE_SCREECH_MIN_SLIP) / 0.2)) : 0;
+      const drift = player.isDrifting ? 0.6 : 0;
+      const level = Math.min(1, amount + drift) * VISUALS.TYRE_SCREECH_MAX_VOLUME;
+      this.screechGain.gain.setTargetAtTime(level, now, 0.05);
+      this.screechFilter.frequency.setTargetAtTime(1500 + speedRatio * 600, now, 0.1);
     }
 
     // Soft distant police siren chirp only when pursuit is active and units are in sight

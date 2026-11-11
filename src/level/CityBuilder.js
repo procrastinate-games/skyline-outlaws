@@ -644,6 +644,8 @@ export class CityBuilder {
     let collided = false;
     let minDistance = Infinity;
     let hitBuilding = null;
+    let normalX = 0;
+    let normalZ = 0;
 
     for (const b of this.buildings) {
       // If vehicle is clearly above the building roof, no wall collision
@@ -670,10 +672,24 @@ export class CityBuilder {
         const penBack = Math.abs(b.maxZ - position.z);
         const minPen = Math.min(penLeft, penRight, penFront, penBack);
 
-        if (minPen === penLeft) position.x = b.minX - radius;
-        else if (minPen === penRight) position.x = b.maxX + radius;
-        else if (minPen === penFront) position.z = b.minZ - radius;
-        else position.z = b.maxZ + radius;
+        // Push out along the shortest penetration axis; the outward wall normal lets callers slide along walls
+        if (minPen === penLeft) {
+          position.x = b.minX - radius;
+          normalX = -1;
+          normalZ = 0;
+        } else if (minPen === penRight) {
+          position.x = b.maxX + radius;
+          normalX = 1;
+          normalZ = 0;
+        } else if (minPen === penFront) {
+          position.z = b.minZ - radius;
+          normalX = 0;
+          normalZ = -1;
+        } else {
+          position.z = b.maxZ + radius;
+          normalX = 0;
+          normalZ = 1;
+        }
       }
     }
 
@@ -681,6 +697,8 @@ export class CityBuilder {
       collided,
       minDistance,
       hitBuilding,
+      normalX,
+      normalZ,
     };
   }
 }

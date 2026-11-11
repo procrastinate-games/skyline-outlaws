@@ -63,6 +63,11 @@ export class ParticleSystem {
     eventBus.on(Events.PLAYER_COLLISION, () => {
       this.spawnBurst(this.player.position, 0xff2a55, 12);
     });
+    eventBus.on(Events.PLAYER_LANDED, ({ impactSpeed }) => {
+      // Surface contact: a puff of dust scaled by how hard the car touched down
+      const count = Math.min(VISUALS.LANDING_DUST_MAX, Math.round((impactSpeed || 0) * VISUALS.LANDING_DUST_PER_IMPACT));
+      if (count > 2) this.spawnBurst(this.player.position, VISUALS.DUST_COLOR, count);
+    });
   }
 
   spawnParticle(x, y, z, vx, vy, vz, colorHex, maxLife = 0.45, scale = 1.0, shape = null) {
@@ -171,6 +176,28 @@ export class ParticleSystem {
             { stretch: VISUALS.TAIL_TRAIL_STRETCH, flatten: VISUALS.TAIL_TRAIL_FLATTEN, rotY: h }
           );
         }
+      }
+
+      // Tyre smoke whenever the tyres actually slide sideways (grip-limited micro-slip, not just drifting)
+      const slip = Math.abs(this.player.slipAngle || 0);
+      if (
+        this.player.isGrounded &&
+        this.player.mode === 'DRIVE' &&
+        !this.player.isDrifting &&
+        slip > VISUALS.TYRE_SMOKE_MIN_SLIP &&
+        Math.abs(this.player.speed) > VISUALS.TYRE_SMOKE_MIN_SPEED
+      ) {
+        this.spawnParticle(
+          p.x + backX * 0.6 + (Math.random() - 0.5) * 1.6,
+          p.y - 0.3,
+          p.z + backZ * 0.6 + (Math.random() - 0.5) * 1.6,
+          (Math.random() - 0.5) * 2,
+          0.8 + Math.random(),
+          (Math.random() - 0.5) * 2,
+          VISUALS.DUST_COLOR,
+          0.4,
+          0.7
+        );
       }
 
       if (this.player.isDrifting) {

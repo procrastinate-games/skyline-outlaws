@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { CHALLENGES, GAME, VISUALS } from './Constants.js';
+import { CAMERA_CONFIG, CHALLENGES, GAME, VISUALS } from './Constants.js';
 import { eventBus, Events } from './EventBus.js';
 import { gameState } from './GameState.js';
 import { CityBuilder } from '../level/CityBuilder.js';
@@ -14,10 +14,13 @@ import { AtmosphereSystem } from '../systems/AtmosphereSystem.js';
 import { initAudioBridge } from '../audio/AudioBridge.js';
 import { sfx } from '../audio/sfx.js';
 import { HUD } from '../ui/HUD.js';
+import { TuningPanel } from '../ui/TuningPanel.js';
+import { loadTuning } from './Tuning.js';
 
 export class Game {
   constructor(rootEl) {
     this.rootEl = rootEl || document.getElementById('app') || document.body;
+    loadTuning();
     this.clock = new THREE.Clock();
     this.elapsedTime = 0;
 
@@ -63,8 +66,14 @@ export class Game {
     eventBus.on(Events.PLAYER_COLLISION, ({ impactSpeed }) => {
       this.cameraSystem.triggerShake(Math.min(0.9, (impactSpeed || 30) * 0.015));
     });
+    eventBus.on(Events.PLAYER_LANDED, ({ impactSpeed }) => {
+      if ((impactSpeed || 0) > CAMERA_CONFIG.LANDING_SHAKE_MIN_IMPACT) {
+        this.cameraSystem.triggerShake(Math.min(0.5, impactSpeed * CAMERA_CONFIG.LANDING_SHAKE_PER_IMPACT));
+      }
+    });
 
     this.hud = new HUD(this.rootEl, this);
+    this.tuningPanel = new TuningPanel(this.rootEl, this);
 
     window.addEventListener('resize', () => this.onResize());
 
@@ -157,6 +166,7 @@ export class Game {
     this.atmosphere.update(dt, this.elapsedTime, this.camera.position);
     sfx.updateContinuous(dt, this.player, gameState);
     this.hud.refreshAll();
+    this.tuningPanel.update(dt);
   }
 
   animate() {

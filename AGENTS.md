@@ -15,6 +15,7 @@
   - [`docs/tech.md`](docs/tech.md) — Stack, directory structure, and conventions.
   - [`docs/architectural-decisions/0001-engine-and-stack.md`](docs/architectural-decisions/0001-engine-and-stack.md) — Engine and custom arcade vehicle/flight solver ADR.
   - [`docs/milestones/0001-mvp-flying-car-chase.md`](docs/milestones/0001-mvp-flying-car-chase.md) — Active milestone and acceptance criteria.
+  - [`docs/vehicle-feel.md`](docs/vehicle-feel.md) — Handling model, tuning presets, debug panel (`?tune`), parameter sensitivity.
   - [`docs/STATE.md`](docs/STATE.md) & [`docs/backlog.md`](docs/backlog.md) — Session state and deferred P2 items.
 - **Architecture**:
   - `src/core/` — `Constants.js`, `EventBus.js`, `GameState.js`, `Game.js`.
