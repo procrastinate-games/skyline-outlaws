@@ -77,7 +77,7 @@ export class HUD {
         <div class="touch-action-grid">
           <button class="touch-btn flight-btn" id="touch-flight">FLIGHT MODE</button>
           <button class="touch-btn" id="touch-boost">BOOST</button>
-          <button class="touch-btn" id="touch-drift">DRIFT</button>
+          <button class="touch-btn" id="touch-drift">DRIFT / AIR BRAKE</button>
           <button class="touch-btn" id="touch-gas">GAS / UP</button>
           <button class="touch-btn" id="touch-brake">BRAKE / DN</button>
         </div>
@@ -86,7 +86,7 @@ export class HUD {
       <div class="hud-bottom">
         <div class="hud-card controls-card">
           <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / <kbd>Arrows</kbd> Drive & Flight Pitch/Bank</div>
-          <div><kbd>F</kbd> or <kbd>Tab</kbd> Transform Drive ↔ Jet Flight · <kbd>Space</kbd> Drift · <kbd>Shift</kbd>/<kbd>E</kbd> Boost</div>
+          <div><kbd>F</kbd> or <kbd>Tab</kbd> Transform Drive ↔ Jet Flight · <kbd>Space</kbd> Drift / Air brake · <kbd>Shift</kbd>/<kbd>E</kbd> Boost</div>
         </div>
 
         <div class="hud-card telemetry-card">
@@ -385,9 +385,9 @@ export class HUD {
       if (player.mode === 'DRIVE' && !player.isGrounded) {
         promptEl.textContent = 'AIRBORNE! PRESS [F] NOW TO IGNITE JET WINGS!';
       } else if (player.mode === 'FLIGHT') {
-        promptEl.textContent = 'JET FLIGHT ACTIVE — W/S TO CLIMB/DIVE · THREAD THE SKY RINGS!';
+        promptEl.textContent = 'JET FLIGHT — W/S CLIMB/DIVE · [SPACE] AIR BRAKE TO THREAD THE SKY RINGS!';
       } else if (gameState.pursuit.active) {
-        promptEl.textContent = 'POLICE INTERCEPTORS ON YOUR TAIL — TRANSFORM [F] TO ESCAPE OVER ROOFTOPS!';
+        promptEl.textContent = 'POLICE ON YOUR TAIL — BOOST [SHIFT] OR LOSE THEM BEHIND BUILDINGS!';
       } else {
         promptEl.textContent = 'ACCELERATE [W] TOWARD THE NEON RAMP · [SPACE] DRIFT · [F] JET FLIGHT';
       }
@@ -490,7 +490,7 @@ export class HUD {
       <span class="title-badge">INTERCEPTED BY METRO POLICE</span>
       <h2 class="modal-title">BUSTED!</h2>
       <p class="modal-subtitle">
-        Police interceptors boxed in your vehicle. Use <strong>Jet Flight [F]</strong> to climb over skyscrapers and break line-of-sight!
+        Police interceptors boxed in your vehicle. Keep your speed up, <strong>Boost [Shift]</strong> to open a gap, and duck behind buildings to break line-of-sight — they can fly too!
       </p>
       <div class="grid-list" style="margin-bottom:16px;">
         <div class="item-card">

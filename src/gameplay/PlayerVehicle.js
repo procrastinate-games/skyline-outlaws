@@ -255,6 +255,7 @@ export class PlayerVehicle {
     this.longAccel = 0; // smoothed longitudinal acceleration (m/s²) for camera & body pitch
     this.latAccel = 0; // lateral acceleration (m/s²) for body roll
     this.crashStun = 0; // seconds of reduced steering after a heavy hit
+    this.isAirBraking = false;
     this.glanceRemaining = 0; // heading still to swing through after a glancing wall hit (applied smoothly)
     this.groundPitchTarget = 0;
     this.autoLevelTimer = 0;
@@ -372,7 +373,9 @@ export class PlayerVehicle {
       this.mode === 'FLIGHT'
         ? this.isBoosting
           ? 1.65
-          : 1.1
+          : this.isAirBraking
+            ? 0.35
+            : 1.1
         : this.isBoosting
           ? 1.35
           : Math.max(0.15, (Math.abs(this.speed) / stats.maxDriveSpeed) * 0.55 + accelFlare);
@@ -640,12 +643,22 @@ export class PlayerVehicle {
     this.pitchAngle += (targetPitch - this.pitchAngle) * expAlpha(pitchRate, h);
     this.pitchVel = (this.pitchAngle - prevPitch) / h;
 
-    // 3. Airspeed: throttle sets the target; diving trades altitude for speed
+    // 2b. Sky-ring assist: when roughly lined up with a ring ahead, gently pull the nose to its centre
+    this.applyRingAssist(h);
+
+    // 3. Airspeed: throttle sets the target, the air brake (Space) sheds speed fast for precise lines,
+    //    diving trades altitude for speed
     const maxFlight = stats.maxFlightSpeed * boostMult;
-    const targetSpeed =
+    this.isAirBraking = Boolean(input.airBrake) && !this.isBoosting;
+    let targetSpeed =
       throttle > 0 ? maxFlight : brake > 0 ? PHYSICS.FLIGHT_MIN_CRUISE_SPEED : stats.maxFlightSpeed * 0.72 * boostMult;
+    let speedRate = f.accel;
+    if (this.isAirBraking) {
+      targetSpeed = f.airBrakeSpeed;
+      speedRate = f.airBrakeRate;
+    }
     const prevSpeed = this.speed;
-    this.speed += (targetSpeed - this.speed) * expAlpha(f.accel, h);
+    this.speed += (targetSpeed - this.speed) * expAlpha(speedRate, h);
     this.speed -= Math.sin(this.pitchAngle) * f.diveSpeedGain * h;
     this.speed = clamp(this.speed, PHYSICS.FLIGHT_MIN_CRUISE_SPEED * 0.8, maxFlight * 1.12);
     this.longAccel += ((this.speed - prevSpeed) / h - this.longAccel) * expAlpha(PHYSICS.ACCEL_SMOOTHING, h);
@@ -710,6 +723,41 @@ export class PlayerVehicle {
       this.handleWallHit(col, PHYSICS.COLLISION_EVENT_MIN_IMPACT_FLIGHT);
       this.speed = Math.max(PHYSICS.FLIGHT_MIN_SPEED_AFTER_HIT, Math.hypot(this.velocity.x, this.velocity.z));
     }
+  }
+
+  /**
+   * Arcade aim assist for sky rings: if a ring is ahead within range and the nose line passes within
+   * the capture radius, ease heading/pitch toward the ring centre. Never fights a player steering away.
+   */
+  applyRingAssist(h) {
+    const f = tuning.flight;
+    if (!f.ringAssist || !this.city.skyRings) return;
+    const cosP = Math.cos(this.pitchAngle);
+    const nx = -Math.sin(this.heading) * cosP;
+    const ny = Math.sin(this.pitchAngle);
+    const nz = -Math.cos(this.heading) * cosP;
+    let best = null;
+    for (const ring of this.city.skyRings) {
+      if (ring.cooldown > 0) continue;
+      const rx = ring.position.x - this.position.x;
+      const ry = ring.position.y - this.position.y;
+      const rz = ring.position.z - this.position.z;
+      const along = rx * nx + ry * ny + rz * nz;
+      if (along <= 0 || along > f.ringAssistRange) continue;
+      const lateral = Math.hypot(rx - nx * along, ry - ny * along, rz - nz * along);
+      if (lateral < f.ringAssistCapture && (!best || lateral < best.lateral)) best = { rx, ry, rz, lateral };
+    }
+    if (!best) return;
+
+    const weight = f.ringAssist * (1 - best.lateral / f.ringAssistCapture);
+    const k = expAlpha(f.ringAssistRate * weight, h);
+    const headingFix = Math.atan2(Math.sin(Math.atan2(-best.rx, -best.rz) - this.heading), Math.cos(Math.atan2(-best.rx, -best.rz) - this.heading));
+    const pitchFix = Math.atan2(best.ry, Math.hypot(best.rx, best.rz)) - this.pitchAngle;
+    // Skip the axis the player is actively steering against
+    if (!(Math.abs(this.steerAxis) > 0.3 && Math.sign(this.steerAxis) !== Math.sign(headingFix))) {
+      this.heading += headingFix * k;
+    }
+    this.pitchAngle += clamp(pitchFix, -PHYSICS.FLIGHT_MAX_PITCH, PHYSICS.FLIGHT_MAX_PITCH) * k;
   }
 
   /** Remove the into-wall velocity, keep most tangential speed, kick a short spin away from the wall. */

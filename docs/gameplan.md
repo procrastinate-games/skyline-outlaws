@@ -11,7 +11,7 @@ An arcade 3D driving and flying-car playground where you tear through a neon-lit
 1. **Drive & Boost**: Accelerate immediately on an open boulevard facing a signature stunt ramp. Carve corners with responsive arcade drift (`Shift` / `Space` / touch Drift button) and afterburner nitro (`E` / `B` / touch Boost button).
 2. **Launch & Transform**: Hit ramps or press the Flight toggle (`F` / `Tab` / touch Flight Mode button) to deploy folding aero-wings and ignite twin vector-thrust jet engines.
 3. **Aerial Playground**: Climb, dive, bank between twin towers, thread glowing sky-rings, and stick clean landings on elevated highways or skyscraper helipads.
-4. **Police Pursuit & Escape**: High speed, reckless stunts, or entering pursuit zones alerts the Metro Interceptor unit. Sirens flash, interceptors and aerial drones converge, and a pursuit heat gauge activates. Break line-of-sight by vaulting over buildings, weaving through skybridges, or outrunning cruisers until the cooldown timer completes for an `ESCAPED!` bonus.
+4. **Police Pursuit & Escape**: High speed, reckless stunts, or entering pursuit zones alerts the Metro Interceptor unit. Sirens flash, interceptors converge — on the road or, when the player takes off, with their own wings in the air, and a pursuit heat gauge activates. Break line-of-sight by vaulting over buildings, weaving through skybridges, or outrunning cruisers until the cooldown timer completes for an `ESCAPED!` bonus.
 5. **Combo & Upgrades**: Chain drifts, air time, sky-rings, near-misses, rooftop landings, and police escapes within the combo window to multiply points. Spend earned credits in the Quick Garage on vehicle unlocks, performance upgrades, and thruster trail colors, or jump into optional 60-second Blitz Challenges.
 
 ## Game rules
@@ -29,7 +29,7 @@ An arcade 3D driving and flying-car playground where you tear through a neon-lit
   - **Combo Multiplier**: Performing another stunt within 4.5 seconds increments the combo multiplier (`x1` → `x2` → ... → `x10`). Hard head-on crashes bank/reset the active combo and deal hull damage during pursuits.
 - **Police Chase**:
   - Triggered automatically after accumulating stunt heat, speeding past patrol units, or pressing the `Pursuit Challenge` trigger.
-  - Heat Levels 1–3 spawn fast interceptor cruisers (and aerial hunter-drones at Heat 2+).
+  - Heat Levels 1–3 spawn 2–4 interceptors whose top speed is 90–100% of the player's (82–94% in the air). They only track the player while they can see them (range + line of sight); out of sight they search the last known position.
   - If police box in or ram the player until Integrity reaches 0% ("BUSTED"), the current unbanked combo is lost and the run can be instantly restarted (`R` or Restart button) with zero friction.
   - Staying outside pursuit capture range until the Escape bar fills banks a massive `ESCAPED!` bonus and repairs vehicle integrity.
 

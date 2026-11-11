@@ -46,7 +46,6 @@ export const COLORS = {
   POLICE_BLUE: 0x2fa8ff,
   POLICE_BODY: 0xf2f3f5,
   POLICE_DOORS: 0x1f2f55,
-  DRONE_BODY: 0xd5d9df,
   CAR_CHASSIS: 0x24272e,
   CAR_GLASS: 0x1c2533,
   CAR_TIRE: 0x1e2025,
@@ -146,8 +145,8 @@ export const VISUALS = {
   TAIL_TRAIL_SCALE: 0.9,
   TAIL_TRAIL_STRETCH: 8.5,
   TAIL_TRAIL_FLATTEN: 0.35,
-  POLICE_HALO_OPACITY: 0.5,
-  POLICE_HALO_RADIUS: 0.42,
+  POLICE_HALO_OPACITY: 0.38,
+  POLICE_HALO_RADIUS: 0.3,
 };
 
 export const VEHICLES = {
@@ -384,6 +383,12 @@ const REFERENCE_TUNING = {
     autoLevelDelay: 0.2, // seconds after releasing pitch before auto-level helps
     momentum: 6, // how fast velocity aligns with the nose (lower = more drift/inertia)
     diveRate: 1.0, // dives descend at sin(pitch) × airspeed × diveRate (climbs are thrust-limited)
+    airBrakeSpeed: 30, // Space in flight sheds speed toward this (m/s) for precise ring lines
+    airBrakeRate: 4,
+    ringAssist: 0.6, // 0 = off · 1 = strong pull toward a ring you're roughly aiming at
+    ringAssistRange: 55, // m ahead
+    ringAssistCapture: 12, // m from the ring centre where assist starts
+    ringAssistRate: 6,
     bankAngle: 0.62,
     takeoffLift: 8, // upward m/s added on take-off (momentum otherwise preserved)
     takeoffPitch: 0.2,
@@ -499,6 +504,8 @@ export const VEHICLE_TUNING = {
     ['flight', 'autoLevel', 'Auto-level', 0, 8, 0.1],
     ['flight', 'momentum', 'Flight momentum', 1, 15, 0.5],
     ['flight', 'diveRate', 'Dive speed', 0.4, 1.5, 0.05],
+    ['flight', 'airBrakeSpeed', 'Air brake speed', 15, 70, 1],
+    ['flight', 'ringAssist', 'Ring assist', 0, 1, 0.05],
     ['camera', 'posLag', 'Camera follow', 2, 25, 0.5],
     ['camera', 'yawLag', 'Camera yaw lag', 1, 20, 0.5],
     ['camera', 'distance', 'Camera distance', 6, 18, 0.1],
@@ -532,36 +539,61 @@ export const STUNTS = {
 
 export const POLICE = {
   TRIGGER_SCORE_THRESHOLD: 450,
-  DETECTION_RADIUS: 58,
-  STANDOFF_DISTANCE: 10.5,
+  DETECTION_RADIUS: 58, // police only see the player within this range AND with a clear line of sight
+  DETECTION_RADIUS_AIR: 95, // open sky: the player is visible from further away
+  EYE_HEIGHT: 1.2,
   MIN_PLAYER_DISTANCE: 8.2,
+  STANDOFF_VERTICAL: 4,
   UNIT_SEPARATION: 5.5,
+  UNIT_RADIUS: 1.8,
+  RIDE_HEIGHT: 0.55,
   CAPTURE_RADIUS: 24,
   CAPTURE_DURATION: 5.5,
   CAPTURE_DECAY_RATE: 0.42,
+  OUTRUN_SPEED: 52,
+  OUTRUN_FLIGHT_SPEED: 32,
   RAM_COOLDOWN: 1.5,
   RAM_DAMAGE: 18,
-  ESCAPE_DURATION: 6.5,
-  CRUISER_BASE_SPEED: 68,
-  DRONE_BASE_SPEED: 64,
+  ESCAPE_DURATION: 5, // seconds unseen to escape
+  ESCAPE_DECAY_RATE: 0.35,
+  HEAT2_AFTER: 28,
+  HEAT3_AFTER: 60,
   MAX_UNITS_PER_HEAT: [0, 2, 3, 4],
+  // Speed balance: share of the PLAYER's own top speed (so upgrades & car choice matter)
+  GROUND_SPEED_RATIO: [0, 0.9, 0.95, 1.0],
+  AIR_SPEED_RATIO: [0, 0.82, 0.88, 0.94],
+  UNIT_SPEED_STAGGER: 0.015,
+  CATCHUP_DISTANCE: 12,
+  CATCHUP_SPEED_MULT: 1.06, // rubber-band only applies while the player is slower than the unit
+  SEARCH_SPEED_FACTOR: 0.85, // speed while hunting the last known position
+  SEARCH_EXTRAPOLATE_TIME: 1.2, // how far ahead of the last sighting units guess
   // Car-like pursuit steering
   TURN_RATE: 3.0,
+  AIR_TURN_RATE: 2.4,
+  AIR_BANK_ANGLE: 0.55,
   ACCELERATION: 42,
   ARRIVE_DISTANCE: 4,
   SETTLE_RATE: 2.5,
   CLOSING_GAIN: 1.6,
   MIN_CORNER_SPEED_FACTOR: 0.35,
-  CATCHUP_DISTANCE: 12,
-  CATCHUP_SPEED_MULT: 1.18,
   BOX_IN_SPEED: 12,
   SPAWN_BEHIND_DISTANCE: 42,
-  // forward < 0 is behind the player; `box` slots surround a (nearly) stopped player
+  // Air pursuit
+  AIR_PURSUIT_MIN_ALTITUDE: 2.5, // player off the ground in Flight Mode (even skimming low) -> units take off
+  AIR_LAND_DELAY: 1.2, // player back on the ground this long -> units land
+  LANDING_SNAP_HEIGHT: 0.6, // within this of road level a landing unit switches back to driving
+  AIR_CLIMB_RATE: 30,
+  AIR_DESCENT_RATE: 40,
+  AIR_VERTICAL_GAIN: 2.5,
+  AIR_MIN_CLEARANCE: 3,
+  TAKEOFF_LIFT: 8,
+  WING_DEPLOY_RATE: 4,
+  // forward < 0 is behind the player; `box` surrounds a (nearly) stopped player; `air` is the flying formation
   FORMATION: [
-    { isDrone: false, chase: { forward: -3, right: -7.5 }, box: { forward: 4, right: -7.5 }, spawnRight: -10 },
-    { isDrone: true, chase: { forward: -4, right: 0 }, box: { forward: 0, right: 0 }, spawnRight: 0, heightOffset: 7 },
-    { isDrone: false, chase: { forward: -11, right: 2.5 }, box: { forward: -3, right: 7.8 }, spawnRight: 10 },
-    { isDrone: true, chase: { forward: -7, right: 6 }, box: { forward: -6, right: -6 }, spawnRight: 14, heightOffset: 9 },
+    { chase: { forward: -3, right: -7.5 }, box: { forward: 4, right: -7.5 }, air: { forward: -6, right: -7, up: 1.5 }, spawnRight: -10 },
+    { chase: { forward: -10, right: 3 }, box: { forward: -3, right: 7.8 }, air: { forward: -10, right: 5, up: -1 }, spawnRight: 10 },
+    { chase: { forward: -15, right: -3 }, box: { forward: 6, right: 6 }, air: { forward: -14, right: -2, up: 3 }, spawnRight: -14 },
+    { chase: { forward: -6, right: 8 }, box: { forward: -6, right: -6 }, air: { forward: -8, right: 9, up: 0 }, spawnRight: 14 },
   ],
 };
 

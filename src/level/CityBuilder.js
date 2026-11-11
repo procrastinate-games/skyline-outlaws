@@ -637,6 +637,46 @@ export class CityBuilder {
   }
 
   /**
+   * True when no building blocks the straight line between two points (3D slab test against each
+   * tower's box from the ground up to its roof). Used for police line-of-sight.
+   */
+  hasLineOfSight(from, to) {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const dz = to.z - from.z;
+    for (const b of this.buildings) {
+      let tMin = 0;
+      let tMax = 1;
+      const axes = [
+        [from.x, dx, b.minX, b.maxX],
+        [from.y, dy, 0, b.h],
+        [from.z, dz, b.minZ, b.maxZ],
+      ];
+      let blocked = true;
+      for (const [o, d, lo, hi] of axes) {
+        if (Math.abs(d) < 1e-9) {
+          if (o < lo || o > hi) {
+            blocked = false;
+            break;
+          }
+          continue;
+        }
+        let t1 = (lo - o) / d;
+        let t2 = (hi - o) / d;
+        if (t1 > t2) [t1, t2] = [t2, t1];
+        tMin = Math.max(tMin, t1);
+        tMax = Math.min(tMax, t2);
+        if (tMin > tMax) {
+          blocked = false;
+          break;
+        }
+      }
+      if (blocked) return false;
+    }
+    return true;
+  }
+
+  /**
    * Resolves horizontal AABB collision against buildings (when below roof height)
    * and computes closest distance to any building for Close Call detection.
    */

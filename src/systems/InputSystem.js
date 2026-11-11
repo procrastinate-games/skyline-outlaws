@@ -91,7 +91,9 @@ export class InputSystem {
       }
     }
 
+    // Space / DRIFT button: powerslide on the road, air brake in Flight Mode
     const drift = this.keys.has('Space') || this.touchState.drift;
+    const airBrake = currentMode === 'FLIGHT' && drift;
     const boost =
       this.keys.has('ShiftLeft') ||
       this.keys.has('ShiftRight') ||
@@ -109,6 +111,7 @@ export class InputSystem {
       pitch,
       drift,
       boost,
+      airBrake,
       flightToggleJustPressed,
     };
   }

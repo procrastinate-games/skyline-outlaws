@@ -13,8 +13,8 @@
   ],
   "dimension": "3D",
   "controls": [
-    "Desktop: W/S or Up/Down to accelerate/brake (or pitch climb/dive in Flight Mode), A/D or Left/Right to steer/bank, F or Tab to transform between Drive and Jet Flight Mode, Space to drift, Shift/E to boost, G for Garage, C for Challenges, P to pause, R to restart.",
-    "Mobile: Left virtual thumbstick to steer and pitch/accelerate, plus dedicated on-screen touch buttons for Flight Mode, Boost, Drift, Gas, and Brake."
+    "Desktop: W/S or Up/Down to accelerate/brake (or pitch climb/dive in Flight Mode), A/D or Left/Right to steer/bank, F or Tab to transform between Drive and Jet Flight Mode, Space to drift (air brake in Flight Mode), Shift/E to boost, G for Garage, C for Challenges, P to pause, R to restart.",
+    "Mobile: Left virtual thumbstick to steer and pitch/accelerate, plus dedicated on-screen touch buttons for Flight Mode, Boost, Drift/Air Brake, Gas, and Brake."
   ],
   "languages": "English",
   "saveNote": "High score, credits, unlocked vehicles, paint liveries, performance upgrades, and audio mute preference are saved locally under pg:skyline-outlaws:save.",

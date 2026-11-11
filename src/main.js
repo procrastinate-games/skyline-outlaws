@@ -36,6 +36,7 @@ window.render_game_to_text = () => {
       isGrounded: p.isGrounded,
       isDrifting: p.isDrifting,
       isBoosting: p.isBoosting,
+      isAirBraking: p.isAirBraking,
       wingDeploy: Math.round(p.wingDeploy * 100) / 100,
     },
     pursuit: {

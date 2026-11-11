@@ -270,6 +270,48 @@ for (const preset of presets) {
   });
 }
 
+test('air brake sheds flight speed quickly for precise ring lines', () => {
+  applyPreset(VEHICLE_TUNING.DEFAULT_PRESET);
+  const car = freshCar();
+  reachSpeed(car, maxSpeed() * 0.9);
+  car.position.y = 120;
+  car.update(DT, input({ throttle: 1, flightToggleJustPressed: true }));
+  drive(car, 2, input({ throttle: 1 }));
+  const fast = car.speed;
+  drive(car, 1, input({ throttle: 1, airBrake: true }));
+  assert.ok(car.isAirBraking, 'air brake engaged');
+  assert.ok(car.speed < fast * 0.5, `air brake: ${fast.toFixed(0)} → ${car.speed.toFixed(0)} m/s in 1 s`);
+  drive(car, 1.5, input({ throttle: 1 }));
+  assert.ok(car.speed > fast * 0.8, 'releasing the brake gets back up to speed');
+});
+
+test('ring assist pulls a slightly-off line through a sky ring, but only when switched on', () => {
+  const flyPast = (assist) => {
+    applyPreset(VEHICLE_TUNING.DEFAULT_PRESET);
+    tuning.flight.ringAssist = assist;
+    const car = freshCar();
+    for (const r of city.skyRings) r.cooldown = 0;
+    const ring = city.skyRings[6]; // West Harbor flight line, open approach from the south
+    car.position.set(ring.position.x + 8, ring.position.y + 3, ring.position.z + 60);
+    car.heading = 0;
+    car.toggleMode('FLIGHT');
+    car.takeoffTimer = 0;
+    car.speed = 60;
+    car.velocity.set(0, 0, -60);
+    let closest = Infinity;
+    for (let i = 0; i < 90; i++) {
+      car.update(DT, input({ throttle: 1 }));
+      closest = Math.min(closest, car.position.distanceTo(ring.position));
+    }
+    return closest;
+  };
+  const withAssist = flyPast(0.6);
+  const without = flyPast(0);
+  applyPreset(VEHICLE_TUNING.DEFAULT_PRESET);
+  assert.ok(without > city.skyRings[6].radius, `without assist the 8 m-off line misses (${without.toFixed(1)} m)`);
+  assert.ok(withAssist < city.skyRings[6].radius, `assist threads the ring (${withAssist.toFixed(1)} m from centre)`);
+});
+
 test('handling is frame-rate independent (30 / 60 / 144 FPS)', () => {
   applyPreset(VEHICLE_TUNING.DEFAULT_PRESET);
   const ends = [1 / 30, 1 / 60, 1 / 144].map((dt) => {
