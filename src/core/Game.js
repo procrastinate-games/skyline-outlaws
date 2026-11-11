@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { CHALLENGES, GAME } from './Constants.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { CHALLENGES, GAME, VISUALS } from './Constants.js';
 import { eventBus, Events } from './EventBus.js';
 import { gameState } from './GameState.js';
 import { CityBuilder } from '../level/CityBuilder.js';
@@ -9,6 +10,7 @@ import { CameraSystem } from '../systems/CameraSystem.js';
 import { StuntSystem } from '../systems/StuntSystem.js';
 import { PoliceSystem } from '../systems/PoliceSystem.js';
 import { ParticleSystem } from '../systems/ParticleSystem.js';
+import { AtmosphereSystem } from '../systems/AtmosphereSystem.js';
 import { initAudioBridge } from '../audio/AudioBridge.js';
 import { sfx } from '../audio/sfx.js';
 import { HUD } from '../ui/HUD.js';
@@ -26,10 +28,18 @@ export class Game {
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, GAME.MAX_DPR));
+    this.renderer.toneMapping = THREE[`${VISUALS.TONE_MAPPING}ToneMapping`] ?? THREE.NeutralToneMapping;
+    this.renderer.toneMappingExposure = VISUALS.TONE_MAPPING_EXPOSURE;
     this.rootEl.appendChild(this.renderer.domElement);
 
     // Scene & Camera
     this.scene = new THREE.Scene();
+
+    // Soft studio reflections so glossy paint & glass read as bright surfaces instead of black metal
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = VISUALS.ENV_INTENSITY;
+    pmrem.dispose();
     this.camera = new THREE.PerspectiveCamera(
       GAME.FOV_BASE,
       window.innerWidth / window.innerHeight,
@@ -45,6 +55,7 @@ export class Game {
     this.stunts = new StuntSystem(this.player, this.city);
     this.police = new PoliceSystem(this.scene, this.player, this.city);
     this.particles = new ParticleSystem(this.scene, this.player);
+    this.atmosphere = new AtmosphereSystem(this.scene, this.player);
 
     initAudioBridge();
     this.cameraSystem.reset();
@@ -139,6 +150,7 @@ export class Game {
     }
 
     this.cameraSystem.update(dt);
+    this.atmosphere.update(dt, this.elapsedTime, this.camera.position);
     sfx.updateContinuous(dt, this.player, gameState);
     this.hud.refreshAll();
   }

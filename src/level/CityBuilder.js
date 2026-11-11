@@ -1,5 +1,23 @@
 import * as THREE from 'three';
-import { COLORS, GAME } from '../core/Constants.js';
+import { COLORS, GAME, VISUALS } from '../core/Constants.js';
+
+const AVENUES_X = [-120, 0, 120];
+const STREETS_Z = [-160, -60, 40, 140];
+const AVENUE_HALF_WIDTH = 12;
+const STREET_HALF_WIDTH = 11;
+const ROAD_LENGTH = 640;
+
+/** Seeded PRNG so decorative scenery is identical every session (and in tests). */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 export class CityBuilder {
   constructor(scene) {
@@ -19,85 +37,75 @@ export class CityBuilder {
     this.buildDistrictBuildings();
     this.buildRamps();
     this.buildSkyRings();
+    this.buildScenery();
   }
 
   buildLightingAndSky() {
-    this.scene.background = new THREE.Color(COLORS.SKY_TOP);
-    this.scene.fog = new THREE.FogExp2(COLORS.FOG, 0.0022);
+    // Sky dome, sun disc & stars live in AtmosphereSystem; fog matches its horizon for seamless haze
+    this.scene.background = new THREE.Color(VISUALS.SKY.HORIZON);
+    this.scene.fog = new THREE.Fog(COLORS.FOG, VISUALS.FOG_NEAR, VISUALS.FOG_FAR);
 
-    const hemi = new THREE.HemisphereLight(COLORS.AMBIENT_LIGHT, COLORS.HEMI_GROUND, 1.35);
+    const hemi = new THREE.HemisphereLight(COLORS.AMBIENT_LIGHT, COLORS.HEMI_GROUND, VISUALS.HEMI_INTENSITY);
     this.root.add(hemi);
 
-    const sun = new THREE.DirectionalLight(COLORS.SUN_LIGHT, 1.6);
-    sun.position.set(120, 220, 140);
+    const sun = new THREE.DirectionalLight(COLORS.SUN_LIGHT, VISUALS.SUN_INTENSITY);
+    sun.position.set(...VISUALS.SUN_LIGHT_POSITION);
     this.root.add(sun);
 
-    const rimLight = new THREE.DirectionalLight(0x00f5d4, 0.65);
-    rimLight.position.set(-140, 120, -160);
+    // Warm golden rim light from the visible sunset direction
+    const rimLight = new THREE.DirectionalLight(COLORS.SUN_RIM_LIGHT, VISUALS.RIM_INTENSITY);
+    rimLight.position.set(...VISUALS.SKY.SUN_DIRECTION.map((v) => v * 300));
     this.root.add(rimLight);
-
-    // Cyber-sunset horizon dome & distant synth sun
-    const sunGeo = new THREE.CircleGeometry(75, 32);
-    const sunMat = new THREE.MeshBasicMaterial({
-      color: 0xff2a85,
-      fog: false,
-    });
-    const sunMesh = new THREE.Mesh(sunGeo, sunMat);
-    sunMesh.position.set(0, 115, -520);
-    this.root.add(sunMesh);
   }
 
   buildGroundAndRoads() {
-    const worldSize = GAME.WORLD_BOUNDS * 2.4;
-    const groundGeo = new THREE.PlaneGeometry(worldSize, worldSize);
-    const groundMat = new THREE.MeshStandardMaterial({
-      color: 0x10131e,
-      roughness: 0.9,
-      metalness: 0.1,
-    });
-    const ground = new THREE.Mesh(groundGeo, groundMat);
+    const groundMat = new THREE.MeshStandardMaterial({ color: COLORS.GRASS, roughness: 0.95, metalness: 0 });
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(VISUALS.GROUND_SIZE, VISUALS.GROUND_SIZE), groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.05;
     this.root.add(ground);
 
-    const roadMat = new THREE.MeshStandardMaterial({
-      color: COLORS.ROAD_ASPHALT,
-      roughness: 0.65,
-      metalness: 0.2,
-    });
-    const cyanLineMat = new THREE.MeshBasicMaterial({ color: COLORS.ROAD_LINE_CYAN });
+    const roadMat = new THREE.MeshStandardMaterial({ color: COLORS.ROAD_ASPHALT, roughness: 0.75, metalness: 0.05 });
+    const sidewalkMat = new THREE.MeshStandardMaterial({ color: COLORS.SIDEWALK, roughness: 0.85, metalness: 0 });
+    const edgeLineMat = new THREE.MeshBasicMaterial({ color: COLORS.ROAD_LINE_WHITE });
     const amberLineMat = new THREE.MeshBasicMaterial({ color: COLORS.ROAD_LINE_AMBER });
+    const sw = VISUALS.SIDEWALK_WIDTH;
 
-    // North-South Avenues (x = -120, 0, 120)
-    const avenuesX = [-120, 0, 120];
-    for (const x of avenuesX) {
-      const road = new THREE.Mesh(new THREE.BoxGeometry(24, 0.1, 640), roadMat);
+    // North-South Avenues with light sidewalks and neon edge strips
+    for (const x of AVENUES_X) {
+      const road = new THREE.Mesh(new THREE.BoxGeometry(AVENUE_HALF_WIDTH * 2, 0.1, ROAD_LENGTH), roadMat);
       road.position.set(x, 0, 0);
       this.root.add(road);
 
-      // Edge neon strips
-      const leftEdge = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.14, 640), cyanLineMat);
-      leftEdge.position.set(x - 11.4, 0.02, 0);
-      this.root.add(leftEdge);
+      for (const side of [-1, 1]) {
+        const walk = new THREE.Mesh(new THREE.BoxGeometry(sw, 0.08, ROAD_LENGTH), sidewalkMat);
+        walk.position.set(x + side * (AVENUE_HALF_WIDTH + sw * 0.5), -0.01, 0);
+        this.root.add(walk);
 
-      const rightEdge = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.14, 640), cyanLineMat);
-      rightEdge.position.set(x + 11.4, 0.02, 0);
-      this.root.add(rightEdge);
+        const edge = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.14, ROAD_LENGTH), edgeLineMat);
+        edge.position.set(x + side * (AVENUE_HALF_WIDTH - 0.6), 0.02, 0);
+        this.root.add(edge);
+      }
     }
 
-    // East-West Cross Streets (z = -160, -60, 40, 140)
-    const streetsZ = [-160, -60, 40, 140];
-    for (const z of streetsZ) {
-      const street = new THREE.Mesh(new THREE.BoxGeometry(640, 0.1, 22), roadMat);
+    // East-West Cross Streets
+    for (const z of STREETS_Z) {
+      const street = new THREE.Mesh(new THREE.BoxGeometry(ROAD_LENGTH, 0.1, STREET_HALF_WIDTH * 2), roadMat);
       street.position.set(0, 0.01, z);
       this.root.add(street);
 
-      const centerLine = new THREE.Mesh(new THREE.BoxGeometry(640, 0.14, 0.35), amberLineMat);
+      for (const side of [-1, 1]) {
+        const walk = new THREE.Mesh(new THREE.BoxGeometry(ROAD_LENGTH, 0.08, sw), sidewalkMat);
+        walk.position.set(0, -0.02, z + side * (STREET_HALF_WIDTH + sw * 0.5));
+        this.root.add(walk);
+      }
+
+      const centerLine = new THREE.Mesh(new THREE.BoxGeometry(ROAD_LENGTH, 0.14, 0.35), amberLineMat);
       centerLine.position.set(0, 0.03, z);
       this.root.add(centerLine);
     }
 
-    // Instanced dashed center lines & glowing street bollards along Neon Boulevard
+    // Instanced dashed center lines along Neon Boulevard
     const dashGeo = new THREE.BoxGeometry(0.4, 0.15, 4.5);
     const dashCount = 48;
     const dashInst = new THREE.InstancedMesh(dashGeo, amberLineMat, dashCount);
@@ -108,6 +116,37 @@ export class CityBuilder {
     }
     dashInst.instanceMatrix.needsUpdate = true;
     this.root.add(dashInst);
+
+    this.buildKerbs();
+  }
+
+  buildKerbs() {
+    // Red/white racing kerbs along every avenue edge (skipping cross-street intersections)
+    const len = VISUALS.KERB_LENGTH;
+    const transforms = [];
+    for (const x of AVENUES_X) {
+      for (const side of [-1, 1]) {
+        let idx = 0;
+        for (let z = -ROAD_LENGTH / 2 + len / 2; z < ROAD_LENGTH / 2; z += len, idx++) {
+          if (STREETS_Z.some((sz) => Math.abs(z - sz) < STREET_HALF_WIDTH + VISUALS.SIDEWALK_WIDTH + len * 0.5)) continue;
+          transforms.push({ x: x + side * (AVENUE_HALF_WIDTH + 0.45), z, red: idx % 2 === 0 });
+        }
+      }
+    }
+    const kerbs = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.9, 0.22, len),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 }),
+      transforms.length
+    );
+    const m = new THREE.Matrix4();
+    const c = new THREE.Color();
+    transforms.forEach((t, i) => {
+      m.makeTranslation(t.x, 0.06, t.z);
+      kerbs.setMatrixAt(i, m);
+      kerbs.setColorAt(i, c.setHex(t.red ? COLORS.KERB_RED : COLORS.KERB_WHITE));
+    });
+    kerbs.instanceMatrix.needsUpdate = true;
+    this.root.add(kerbs);
   }
 
   buildElevatedOverpass() {
@@ -122,15 +161,15 @@ export class CityBuilder {
     this.elevatedDecks.push(deck);
 
     const deckMat = new THREE.MeshStandardMaterial({
-      color: 0x20263a,
-      roughness: 0.5,
-      metalness: 0.35,
+      color: COLORS.OVERPASS_DECK,
+      roughness: 0.6,
+      metalness: 0.15,
     });
     const deckMesh = new THREE.Mesh(new THREE.BoxGeometry(360, 1.2, 22), deckMat);
     deckMesh.position.set(0, 11.4, -110);
     this.root.add(deckMesh);
 
-    const railMat = new THREE.MeshBasicMaterial({ color: 0x00f5d4 });
+    const railMat = new THREE.MeshStandardMaterial({ color: COLORS.ROAD_LINE_WHITE, roughness: 0.6 });
     const northRail = new THREE.Mesh(new THREE.BoxGeometry(360, 0.6, 0.4), railMat);
     northRail.position.set(0, 12.3, -120.7);
     this.root.add(northRail);
@@ -140,7 +179,7 @@ export class CityBuilder {
     this.root.add(southRail);
 
     // Support pillars
-    const pillarMat = new THREE.MeshStandardMaterial({ color: 0x2c334d, roughness: 0.7 });
+    const pillarMat = new THREE.MeshStandardMaterial({ color: COLORS.OVERPASS_PILLAR, roughness: 0.8 });
     const pillarGeo = new THREE.CylinderGeometry(1.4, 1.8, 12, 8);
     for (let x = -150; x <= 150; x += 50) {
       if (Math.abs(x) < 15) continue; // Keep central avenue clear
@@ -154,76 +193,91 @@ export class CityBuilder {
     // Carefully curated city blocks leaving roads and stunt flight corridors open
     const specs = [
       // Twin Cyber Towers framing Neon Boulevard (with Skybridge at y=36)
-      { x: -25, z: 0, w: 20, d: 20, h: 68, color: 0x192340, accent: 0x00f2fe, hasHelipad: true },
-      { x: 25, z: 0, w: 20, d: 20, h: 68, color: 0x192340, accent: 0x00f2fe, hasHelipad: true },
+      { x: -25, z: 0, w: 20, d: 20, h: 68, twin: true, accent: 0x00f2fe, hasHelipad: true },
+      { x: 25, z: 0, w: 20, d: 20, h: 68, twin: true, accent: 0x00f2fe, hasHelipad: true },
 
       // Downtown Core blocks
-      { x: -55, z: 85, w: 26, d: 28, h: 42, color: 0x1f1b38, accent: 0xff007f, hasHelipad: true },
-      { x: 55, z: 85, w: 26, d: 28, h: 38, color: 0x1b263b, accent: 0x00f5d4, hasHelipad: true },
-      { x: -55, z: -25, w: 28, d: 24, h: 52, color: 0x221c35, accent: 0xffbe0b, hasHelipad: false },
-      { x: 55, z: -25, w: 28, d: 24, h: 48, color: 0x1a243a, accent: 0xff007f, hasHelipad: true },
+      { x: -55, z: 85, w: 26, d: 28, h: 42, accent: 0xff007f, hasHelipad: true },
+      { x: 55, z: 85, w: 26, d: 28, h: 38, accent: 0x00f5d4, hasHelipad: true },
+      { x: -55, z: -25, w: 28, d: 24, h: 52, accent: 0xffbe0b, hasHelipad: false },
+      { x: 55, z: -25, w: 28, d: 24, h: 48, accent: 0xff007f, hasHelipad: true },
 
       // North Spire District (tall skyscraper canyon flanking Neon Boulevard)
-      { x: -34, z: -195, w: 24, d: 24, h: 82, color: 0x141e38, accent: 0x00f5d4, hasHelipad: true },
-      { x: 34, z: -195, w: 24, d: 24, h: 78, color: 0x1e1836, accent: 0xff007f, hasHelipad: true },
-      { x: -42, z: -260, w: 28, d: 26, h: 95, color: 0x16203a, accent: 0xffbe0b, hasHelipad: true },
-      { x: 42, z: -260, w: 28, d: 26, h: 92, color: 0x192340, accent: 0x00f2fe, hasHelipad: true },
+      { x: -34, z: -195, w: 24, d: 24, h: 82, accent: 0x00f5d4, hasHelipad: true },
+      { x: 34, z: -195, w: 24, d: 24, h: 78, accent: 0xff007f, hasHelipad: true },
+      { x: -42, z: -260, w: 28, d: 26, h: 95, accent: 0xffbe0b, hasHelipad: true },
+      { x: 42, z: -260, w: 28, d: 26, h: 92, accent: 0x00f2fe, hasHelipad: true },
 
       // West Harbor / Industrial District
-      { x: -165, z: 80, w: 34, d: 28, h: 28, color: 0x23293a, accent: 0xff6b00, hasHelipad: false },
-      { x: -165, z: -10, w: 32, d: 32, h: 36, color: 0x1d2436, accent: 0x00f2fe, hasHelipad: true },
-      { x: -165, z: -190, w: 36, d: 30, h: 44, color: 0x251e38, accent: 0xffbe0b, hasHelipad: false },
-      { x: -85, z: -195, w: 24, d: 26, h: 56, color: 0x182238, accent: 0x00f5d4, hasHelipad: false },
+      { x: -165, z: 80, w: 34, d: 28, h: 28, accent: 0xff6b00, hasHelipad: false },
+      { x: -165, z: -10, w: 32, d: 32, h: 36, accent: 0x00f2fe, hasHelipad: true },
+      { x: -165, z: -190, w: 36, d: 30, h: 44, accent: 0xffbe0b, hasHelipad: false },
+      { x: -85, z: -195, w: 24, d: 26, h: 56, accent: 0x00f5d4, hasHelipad: false },
 
       // East Neon Plaza District
-      { x: 165, z: 80, w: 30, d: 30, h: 34, color: 0x1e2038, accent: 0x00f5d4, hasHelipad: true },
-      { x: 165, z: -10, w: 32, d: 28, h: 46, color: 0x241a38, accent: 0xff007f, hasHelipad: false },
-      { x: 165, z: -190, w: 32, d: 32, h: 54, color: 0x17243c, accent: 0x00f2fe, hasHelipad: true },
-      { x: 85, z: -195, w: 24, d: 26, h: 60, color: 0x201c38, accent: 0xffbe0b, hasHelipad: false },
+      { x: 165, z: 80, w: 30, d: 30, h: 34, accent: 0x00f5d4, hasHelipad: true },
+      { x: 165, z: -10, w: 32, d: 28, h: 46, accent: 0xff007f, hasHelipad: false },
+      { x: 165, z: -190, w: 32, d: 32, h: 54, accent: 0x00f2fe, hasHelipad: true },
+      { x: 85, z: -195, w: 24, d: 26, h: 60, accent: 0xffbe0b, hasHelipad: false },
 
       // South Entry Framing Towers
-      { x: -50, z: 185, w: 26, d: 26, h: 35, color: 0x1a2238, accent: 0x00f5d4, hasHelipad: false },
-      { x: 50, z: 185, w: 26, d: 26, h: 35, color: 0x221b38, accent: 0xff007f, hasHelipad: false },
+      { x: -50, z: 185, w: 26, d: 26, h: 35, accent: 0x00f5d4, hasHelipad: false },
+      { x: 50, z: 185, w: 26, d: 26, h: 35, accent: 0xff007f, hasHelipad: false },
     ];
 
     const windowTransforms = [];
+    const windowColors = [];
     const dummy = new THREE.Object3D();
+    const plazaMat = new THREE.MeshStandardMaterial({ color: COLORS.PLAZA, roughness: 0.85 });
+    const palette = VISUALS.BUILDING_PALETTE;
 
-    for (const b of specs) {
+    specs.forEach((b, i) => {
+      const isTwinTower = Boolean(b.twin);
       const geo = new THREE.BoxGeometry(b.w, b.h, b.d);
       const mat = new THREE.MeshStandardMaterial({
-        color: b.color,
-        roughness: 0.45,
-        metalness: 0.35,
+        color: isTwinTower ? VISUALS.TWIN_TOWER_COLOR : palette[i % palette.length],
+        roughness: VISUALS.BUILDING_ROUGHNESS,
+        metalness: VISUALS.BUILDING_METALNESS,
       });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(b.x, b.h * 0.5, b.z);
       this.root.add(mesh);
 
+      // Light concrete plaza around each tower base
+      const plaza = new THREE.Mesh(new THREE.BoxGeometry(b.w + 10, 0.1, b.d + 10), plazaMat);
+      plaza.position.set(b.x, -0.03, b.z);
+      this.root.add(plaza);
+
       // Glowing neon roofline trim
       const trimGeo = new THREE.BoxGeometry(b.w + 0.5, 0.7, b.d + 0.5);
-      const trimMat = new THREE.MeshBasicMaterial({ color: b.accent });
+      const trimMat = new THREE.MeshStandardMaterial({ color: COLORS.ROOF_TRIM, roughness: 0.5 });
       const trim = new THREE.Mesh(trimGeo, trimMat);
       trim.position.set(b.x, b.h - 0.2, b.z);
       this.root.add(trim);
 
-      // Collect instanced neon window bands along front/back faces
+      // Instanced glass window bands on all four faces (sky-blue glass or warm lit offices)
+      const bandColor = i % 3 === 0 ? COLORS.WINDOW_WARM : COLORS.WINDOW_GLASS;
       for (let y = 6; y < b.h - 4; y += 6.5) {
-        dummy.position.set(b.x, y, b.z + b.d * 0.5 + 0.08);
-        dummy.scale.set(b.w * 0.78, 1.3, 0.1);
-        dummy.updateMatrix();
-        windowTransforms.push(dummy.matrix.clone());
+        for (const side of [-1, 1]) {
+          dummy.position.set(b.x, y, b.z + side * (b.d * 0.5 + 0.08));
+          dummy.scale.set(b.w * 0.78, 1.3, 0.1);
+          dummy.updateMatrix();
+          windowTransforms.push(dummy.matrix.clone());
+          windowColors.push(bandColor);
 
-        dummy.position.set(b.x, y, b.z - b.d * 0.5 - 0.08);
-        dummy.updateMatrix();
-        windowTransforms.push(dummy.matrix.clone());
+          dummy.position.set(b.x + side * (b.w * 0.5 + 0.08), y, b.z);
+          dummy.scale.set(0.1, 1.3, b.d * 0.78);
+          dummy.updateMatrix();
+          windowTransforms.push(dummy.matrix.clone());
+          windowColors.push(bandColor);
+        }
       }
 
       if (b.hasHelipad) {
-        const padMat = new THREE.MeshBasicMaterial({ color: 0x00f5d4 });
+        const padMat = new THREE.MeshBasicMaterial({ color: COLORS.ROAD_LINE_CYAN });
         const padRing = new THREE.Mesh(
           new THREE.RingGeometry(4.2, 5.2, 24),
-          new THREE.MeshBasicMaterial({ color: 0xffbe0b, side: THREE.DoubleSide })
+          new THREE.MeshBasicMaterial({ color: COLORS.RING_GOLD, side: THREE.DoubleSide })
         );
         padRing.rotation.x = -Math.PI / 2;
         padRing.position.set(b.x, b.h + 0.08, b.z);
@@ -253,12 +307,12 @@ export class CityBuilder {
         maxZ: b.z + b.d * 0.5,
         hasHelipad: b.hasHelipad,
       });
-    }
+    });
 
     // Twin Towers high-altitude Skybridge at z = 0, y = 40
     const bridgeMesh = new THREE.Mesh(
       new THREE.BoxGeometry(30, 2.2, 8),
-      new THREE.MeshStandardMaterial({ color: 0x1d2d50, metalness: 0.5, roughness: 0.3 })
+      new THREE.MeshStandardMaterial({ color: COLORS.SKYBRIDGE, metalness: 0.3, roughness: 0.25 })
     );
     bridgeMesh.position.set(0, 40, 0);
     this.root.add(bridgeMesh);
@@ -266,10 +320,12 @@ export class CityBuilder {
     // Single InstancedMesh for all building window strips (threejs-perf pattern)
     if (windowTransforms.length > 0) {
       const winGeo = new THREE.BoxGeometry(1, 1, 1);
-      const winMat = new THREE.MeshBasicMaterial({ color: 0x64dfdf });
+      const winMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
       const winInst = new THREE.InstancedMesh(winGeo, winMat, windowTransforms.length);
+      const winColor = new THREE.Color();
       for (let i = 0; i < windowTransforms.length; i++) {
         winInst.setMatrixAt(i, windowTransforms[i]);
+        winInst.setColorAt(i, winColor.setHex(windowColors[i]));
       }
       winInst.instanceMatrix.needsUpdate = true;
       this.root.add(winInst);
@@ -391,6 +447,109 @@ export class CityBuilder {
         cooldown: 0,
       });
     });
+  }
+
+  /**
+   * Decorative low-poly scenery (no collision): mountain ring on the horizon, trees on
+   * open grass between blocks, and desert boulders on the outskirts.
+   */
+  buildScenery() {
+    const rng = mulberry32(VISUALS.SCENERY_SEED);
+    const dummy = new THREE.Object3D();
+    const color = new THREE.Color();
+    const pick = (arr) => arr[Math.floor(rng() * arr.length)];
+
+    // 1. Mountain ring
+    const mtn = VISUALS.MOUNTAINS;
+    const mountains = new THREE.InstancedMesh(
+      new THREE.ConeGeometry(1, 1, 6, 1),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, flatShading: true }),
+      mtn.COUNT
+    );
+    for (let i = 0; i < mtn.COUNT; i++) {
+      const angle = (i / mtn.COUNT) * Math.PI * 2 + rng() * 0.12;
+      const r = mtn.MIN_RADIUS + rng() * (mtn.MAX_RADIUS - mtn.MIN_RADIUS);
+      const h = mtn.MIN_HEIGHT + rng() * (mtn.MAX_HEIGHT - mtn.MIN_HEIGHT);
+      const width = h * (0.75 + rng() * 0.55);
+      dummy.position.set(Math.cos(angle) * r, h * 0.5 - 4, Math.sin(angle) * r);
+      dummy.rotation.set(0, rng() * Math.PI, 0);
+      dummy.scale.set(width, h, width * (0.8 + rng() * 0.4));
+      dummy.updateMatrix();
+      mountains.setMatrixAt(i, dummy.matrix);
+      mountains.setColorAt(i, color.setHex(pick(mtn.COLORS)));
+    }
+    this.root.add(mountains);
+
+    // 2. Trees on open grass (rejects roads, sidewalks, building plazas, ramps & overpass)
+    const tr = VISUALS.TREES;
+    const clear = tr.CLEARANCE;
+    const isBlocked = (x, z) => {
+      if (Math.hypot(x - 0, z - 120) < 30) return true; // spawn area
+      if (AVENUES_X.some((ax) => Math.abs(x - ax) < AVENUE_HALF_WIDTH + VISUALS.SIDEWALK_WIDTH + clear)) return true;
+      if (STREETS_Z.some((sz) => Math.abs(z - sz) < STREET_HALF_WIDTH + VISUALS.SIDEWALK_WIDTH + clear)) return true;
+      const inBox = (o, pad) => x > o.minX - pad && x < o.maxX + pad && z > o.minZ - pad && z < o.maxZ + pad;
+      if (this.buildings.some((b) => inBox(b, 5 + clear))) return true;
+      if (this.ramps.some((r) => inBox(r, clear))) return true;
+      if (this.elevatedDecks.some((d) => inBox(d, clear))) return true;
+      return false;
+    };
+    const treeSpots = [];
+    for (let attempt = 0; attempt < tr.COUNT * 12 && treeSpots.length < tr.COUNT; attempt++) {
+      const x = (rng() * 2 - 1) * tr.AREA;
+      const z = (rng() * 2 - 1) * tr.AREA;
+      if (!isBlocked(x, z)) treeSpots.push({ x, z, s: 0.8 + rng() * 0.9 });
+    }
+    const trunks = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.35, 0.55, 3, 5),
+      new THREE.MeshStandardMaterial({ color: tr.TRUNK_COLOR, roughness: 0.9, flatShading: true }),
+      treeSpots.length
+    );
+    const crowns = new THREE.InstancedMesh(
+      new THREE.IcosahedronGeometry(2.6, 0),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, flatShading: true }),
+      treeSpots.length
+    );
+    treeSpots.forEach((t, i) => {
+      dummy.rotation.set(0, rng() * Math.PI, 0);
+      dummy.position.set(t.x, 1.5 * t.s, t.z);
+      dummy.scale.setScalar(t.s);
+      dummy.updateMatrix();
+      trunks.setMatrixAt(i, dummy.matrix);
+
+      dummy.position.set(t.x, 4.6 * t.s, t.z);
+      dummy.scale.set(t.s, t.s * (1 + rng() * 0.4), t.s);
+      dummy.updateMatrix();
+      crowns.setMatrixAt(i, dummy.matrix);
+      crowns.setColorAt(i, color.setHex(pick(tr.COLORS)));
+    });
+    this.root.add(trunks, crowns);
+
+    // 3. Desert boulders on the outskirts
+    const rk = VISUALS.ROCKS;
+    const rocks = new THREE.InstancedMesh(
+      new THREE.DodecahedronGeometry(1, 0),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, flatShading: true }),
+      rk.COUNT
+    );
+    for (let i = 0; i < rk.COUNT; i++) {
+      let x = 0;
+      let z = 0;
+      for (let tries = 0; tries < 20; tries++) {
+        const angle = rng() * Math.PI * 2;
+        const r = rk.MIN_RADIUS + rng() * (rk.MAX_RADIUS - rk.MIN_RADIUS);
+        x = Math.cos(angle) * r;
+        z = Math.sin(angle) * r;
+        if (!isBlocked(x, z)) break;
+      }
+      const size = 2 + rng() * 6;
+      dummy.position.set(x, size * 0.25, z);
+      dummy.rotation.set(rng() * Math.PI, rng() * Math.PI, rng() * Math.PI);
+      dummy.scale.set(size * (1 + rng() * 0.6), size * (0.6 + rng() * 0.3), size);
+      dummy.updateMatrix();
+      rocks.setMatrixAt(i, dummy.matrix);
+      rocks.setColorAt(i, color.setHex(pick(rk.COLORS)));
+    }
+    this.root.add(rocks);
   }
 
   update(dt, elapsedTime = 0) {

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { COLORS, VISUALS } from '../core/Constants.js';
 import { eventBus, Events } from '../core/EventBus.js';
 
 export class ParticleSystem {
@@ -6,13 +7,22 @@ export class ParticleSystem {
     this.scene = scene;
     this.player = player;
 
-    this.maxParticles = 140;
+    this.maxParticles = 280;
     this.particles = [];
 
     const geo = new THREE.BoxGeometry(0.32, 0.32, 0.32);
-    const mat = new THREE.MeshBasicMaterial({ color: 0x00f5d4 });
+    // Additive glowing plasma so trails & bursts pop against the bright daytime city
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: VISUALS.PARTICLE_OPACITY,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
     this.instancedMesh = new THREE.InstancedMesh(geo, mat, this.maxParticles);
     this.instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    // Instances move all over the city; a cached bounding sphere would cull the whole pool
+    this.instancedMesh.frustumCulled = false;
     this.scene.add(this.instancedMesh);
 
     this.dummy = new THREE.Object3D();
@@ -30,6 +40,9 @@ export class ParticleSystem {
         life: 0,
         maxLife: 1,
         scale: 1,
+        stretch: 1,
+        flatten: 1,
+        rotY: 0,
         color: 0x00f5d4,
       });
       this.dummy.position.set(0, -100, 0);
@@ -52,7 +65,7 @@ export class ParticleSystem {
     });
   }
 
-  spawnParticle(x, y, z, vx, vy, vz, colorHex, maxLife = 0.45, scale = 1.0) {
+  spawnParticle(x, y, z, vx, vy, vz, colorHex, maxLife = 0.45, scale = 1.0, shape = null) {
     const slot = this.particles.find((p) => !p.active) || this.particles[0];
     slot.active = true;
     slot.x = x;
@@ -64,6 +77,9 @@ export class ParticleSystem {
     slot.life = maxLife;
     slot.maxLife = maxLife;
     slot.scale = scale;
+    slot.stretch = shape ? shape.stretch : 1;
+    slot.flatten = shape ? shape.flatten : 1;
+    slot.rotY = shape ? shape.rotY : 0;
     slot.color = colorHex;
   }
 
@@ -80,7 +96,7 @@ export class ParticleSystem {
         Math.sin(angle) * speed,
         colorHex,
         0.55,
-        1.4
+        VISUALS.BURST_PARTICLE_SCALE
       );
     }
   }
@@ -89,7 +105,7 @@ export class ParticleSystem {
     this.spawnAccumulator += dt;
 
     // Emit continuous thruster plasma or drift tire sparks
-    if (this.spawnAccumulator >= 0.03) {
+    if (this.spawnAccumulator >= 0.02) {
       this.spawnAccumulator = 0;
       const p = this.player.position;
       const h = this.player.heading;
@@ -109,6 +125,29 @@ export class ParticleSystem {
           0.35,
           1.2
         );
+      }
+
+      // Neon thruster light trails streaming from the rear wheels (reference-style cyan ribbons)
+      if (this.player.mode === 'DRIVE' && Math.abs(this.player.speed) > VISUALS.TAIL_TRAIL_MIN_SPEED) {
+        const trailColor = this.player.accentMaterial
+          ? this.player.accentMaterial.color.getHex()
+          : COLORS.ROAD_LINE_CYAN;
+        const rightX = Math.cos(h) * 0.95;
+        const rightZ = -Math.sin(h) * 0.95;
+        for (const side of [-1, 1]) {
+          this.spawnParticle(
+            p.x + backX * 0.6 + rightX * side,
+            p.y - 0.25,
+            p.z + backZ * 0.6 + rightZ * side,
+            backX * 0.4,
+            0,
+            backZ * 0.4,
+            trailColor,
+            VISUALS.TAIL_TRAIL_LIFE,
+            VISUALS.TAIL_TRAIL_SCALE,
+            { stretch: VISUALS.TAIL_TRAIL_STRETCH, flatten: VISUALS.TAIL_TRAIL_FLATTEN, rotY: h }
+          );
+        }
       }
 
       if (this.player.isDrifting) {
@@ -146,7 +185,9 @@ export class ParticleSystem {
 
       const ratio = pt.life / pt.maxLife;
       this.dummy.position.set(pt.x, pt.y, pt.z);
-      this.dummy.scale.setScalar(pt.scale * ratio);
+      this.dummy.rotation.set(0, pt.rotY, 0);
+      const s = pt.scale * ratio;
+      this.dummy.scale.set(s, s * pt.flatten, pt.scale * pt.stretch * (0.75 + 0.25 * ratio));
       this.dummy.updateMatrix();
       this.instancedMesh.setMatrixAt(i, this.dummy.matrix);
       this.instancedMesh.setColorAt(i, this.colorHelper.setHex(pt.color));

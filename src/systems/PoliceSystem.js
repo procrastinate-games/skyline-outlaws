@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COLORS, POLICE, STUNTS } from '../core/Constants.js';
+import { COLORS, POLICE, STUNTS, VISUALS } from '../core/Constants.js';
 import { eventBus, Events } from '../core/EventBus.js';
 import { gameState } from '../core/GameState.js';
 
@@ -13,6 +13,9 @@ export class PoliceSystem {
     this.scene.add(this.root);
 
     this.units = [];
+    this.haloGeometry = new THREE.SphereGeometry(VISUALS.POLICE_HALO_RADIUS, 12, 8);
+    this.redHaloMat = this.makeHaloMaterial(COLORS.POLICE_RED);
+    this.blueHaloMat = this.makeHaloMaterial(COLORS.POLICE_BLUE);
     this.ramCooldown = 0;
     this.graceTimer = 10; // Initial grace period so player can enjoy first jump before sirens
     this.strobeClock = 0;
@@ -37,10 +40,27 @@ export class PoliceSystem {
     this.units = [];
   }
 
+  makeHaloMaterial(color) {
+    return new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: VISUALS.POLICE_HALO_OPACITY,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+  }
+
+  /** Soft additive glow around each strobe so light bars flash visibly in daylight. */
+  addStrobeHalos(leftStrobe, rightStrobe) {
+    leftStrobe.add(new THREE.Mesh(this.haloGeometry, this.redHaloMat));
+    rightStrobe.add(new THREE.Mesh(this.haloGeometry, this.blueHaloMat));
+  }
+
   buildCruiserMesh() {
     const group = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x101420, metalness: 0.6, roughness: 0.3 });
-    const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf4f6f8, roughness: 0.4 });
+    const bodyMat = new THREE.MeshPhysicalMaterial({ color: COLORS.POLICE_BODY, metalness: 0.2, roughness: 0.35, clearcoat: 1 });
+    const whiteMat = new THREE.MeshStandardMaterial({ color: COLORS.POLICE_DOORS, roughness: 0.4 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: COLORS.CAR_GLASS, roughness: 0.1, metalness: 0.2 });
     const redMat = new THREE.MeshBasicMaterial({ color: COLORS.POLICE_RED });
     const blueMat = new THREE.MeshBasicMaterial({ color: COLORS.POLICE_BLUE });
 
@@ -52,7 +72,7 @@ export class PoliceSystem {
     doors.position.set(0, 0.56, 0);
     group.add(doors);
 
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.45, 1.9), bodyMat);
+    const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.45, 1.9), glassMat);
     cabin.position.set(0, 0.98, 0.05);
     group.add(cabin);
 
@@ -63,13 +83,14 @@ export class PoliceSystem {
     const rightStrobe = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.14, 0.28), blueMat);
     rightStrobe.position.set(0.36, 1.26, 0);
     group.add(rightStrobe);
+    this.addStrobeHalos(leftStrobe, rightStrobe);
 
     return { group, leftStrobe, rightStrobe };
   }
 
   buildDroneMesh() {
     const group = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1b2234, metalness: 0.7, roughness: 0.2 });
+    const bodyMat = new THREE.MeshStandardMaterial({ color: COLORS.DRONE_BODY, metalness: 0.4, roughness: 0.25 });
     const redMat = new THREE.MeshBasicMaterial({ color: COLORS.POLICE_RED });
     const blueMat = new THREE.MeshBasicMaterial({ color: COLORS.POLICE_BLUE });
 
@@ -87,6 +108,7 @@ export class PoliceSystem {
     const rightStrobe = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.2, 0.5), blueMat);
     rightStrobe.position.set(0.9, 0.3, 0);
     group.add(rightStrobe);
+    this.addStrobeHalos(leftStrobe, rightStrobe);
 
     return { group, leftStrobe, rightStrobe };
   }

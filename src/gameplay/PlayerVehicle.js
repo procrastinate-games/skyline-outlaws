@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GAME, PHYSICS } from '../core/Constants.js';
+import { COLORS, GAME, PHYSICS, VISUALS } from '../core/Constants.js';
 import { eventBus, Events } from '../core/EventBus.js';
 import { gameState } from '../core/GameState.js';
 
@@ -29,22 +29,26 @@ export class PlayerVehicle {
   buildVehicleMesh() {
     const stats = gameState.getVehicleStats();
 
-    this.bodyMaterial = new THREE.MeshStandardMaterial({
+    // Glossy clear-coated car paint (reflects the scene environment instead of reading as black metal)
+    this.bodyMaterial = new THREE.MeshPhysicalMaterial({
       color: stats.primaryColor,
-      metalness: 0.65,
-      roughness: 0.25,
+      metalness: 0.3,
+      roughness: 0.32,
+      clearcoat: 1,
+      clearcoatRoughness: 0.08,
     });
 
     const darkChassisMat = new THREE.MeshStandardMaterial({
-      color: 0x111522,
-      metalness: 0.5,
-      roughness: 0.45,
+      color: COLORS.CAR_CHASSIS,
+      metalness: 0.4,
+      roughness: 0.5,
     });
 
-    const glassMat = new THREE.MeshStandardMaterial({
-      color: 0x091326,
-      metalness: 0.9,
-      roughness: 0.1,
+    const glassMat = new THREE.MeshPhysicalMaterial({
+      color: COLORS.CAR_GLASS,
+      metalness: 0.1,
+      roughness: 0.05,
+      clearcoat: 1,
     });
 
     this.accentMaterial = new THREE.MeshBasicMaterial({
@@ -109,7 +113,7 @@ export class PlayerVehicle {
     rightHeadlight.position.set(0.68, 0.58, -2.35);
     this.mesh.add(rightHeadlight);
 
-    const tailBarMat = new THREE.MeshBasicMaterial({ color: 0xff0055 });
+    const tailBarMat = new THREE.MeshBasicMaterial({ color: COLORS.TAIL_LIGHT });
     const tailBar = new THREE.Mesh(new THREE.BoxGeometry(1.98, 0.14, 0.1), tailBarMat);
     tailBar.position.set(0, 0.68, 2.26);
     this.mesh.add(tailBar);
@@ -163,7 +167,7 @@ export class PlayerVehicle {
     // 8. 4 Rotating Wheels with glowing rims
     const tireGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.32, 16);
     tireGeo.rotateZ(Math.PI / 2);
-    const tireMat = new THREE.MeshStandardMaterial({ color: 0x15171e, roughness: 0.8 });
+    const tireMat = new THREE.MeshStandardMaterial({ color: COLORS.CAR_TIRE, roughness: 0.8 });
     const rimGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.34, 10);
     rimGeo.rotateZ(Math.PI / 2);
 
@@ -188,12 +192,41 @@ export class PlayerVehicle {
       this.wheels.push(wheelGroup);
       if (wc.front) this.frontWheelPivots.push(pivot);
     }
+
+    // 9. Neon underglow pool on the road (additive soft ellipse tinted with the thruster color)
+    const glowSize = 32;
+    const glowData = new Uint8Array(glowSize * glowSize * 4);
+    for (let y = 0; y < glowSize; y++) {
+      for (let x = 0; x < glowSize; x++) {
+        const dx = (x + 0.5) / glowSize - 0.5;
+        const dy = (y + 0.5) / glowSize - 0.5;
+        const a = Math.pow(Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy) * 2), 1.6);
+        const i = (y * glowSize + x) * 4;
+        glowData.set([255, 255, 255, Math.round(a * 255)], i);
+      }
+    }
+    const glowTex = new THREE.DataTexture(glowData, glowSize, glowSize, THREE.RGBAFormat);
+    glowTex.needsUpdate = true;
+    this.underglowMaterial = new THREE.MeshBasicMaterial({
+      color: stats.thrusterColor,
+      map: glowTex,
+      transparent: true,
+      opacity: VISUALS.UNDERGLOW_OPACITY,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const underglow = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 6.4), this.underglowMaterial);
+    underglow.rotation.x = -Math.PI / 2;
+    underglow.position.y = -0.45;
+    underglow.renderOrder = 2;
+    this.mesh.add(underglow);
   }
 
   refreshAppearance() {
     const stats = gameState.getVehicleStats();
     if (this.bodyMaterial) this.bodyMaterial.color.setHex(stats.primaryColor);
     if (this.accentMaterial) this.accentMaterial.color.setHex(stats.thrusterColor);
+    if (this.underglowMaterial) this.underglowMaterial.color.setHex(stats.thrusterColor);
   }
 
   reset() {

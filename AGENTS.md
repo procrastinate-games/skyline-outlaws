@@ -20,7 +20,7 @@
   - `src/core/` — `Constants.js`, `EventBus.js`, `GameState.js`, `Game.js`.
   - `src/gameplay/` — `PlayerVehicle.js` (stylized futuristic car + retractable wings + thrusters + arcade Drive/Flight physics).
   - `src/level/` — `CityBuilder.js` (3D cyber-sunset city, roads, bridges, skyscrapers, mega-ramps, rooftop helipads, sky rings).
-  - `src/systems/` — `InputSystem.js` (keyboard + touch), `CameraSystem.js` (speed-reactive 3rd-person chase camera), `StuntSystem.js` (stunts & combos), `PoliceSystem.js` (heat 1–3 cruisers & drones), `ParticleSystem.js` (thrusters, drift sparks, ring bursts).
+  - `src/systems/` — `InputSystem.js` (keyboard + touch), `CameraSystem.js` (speed-reactive 3rd-person chase camera), `StuntSystem.js` (stunts & combos), `PoliceSystem.js` (heat 1–3 cruisers & drones), `ParticleSystem.js` (thrusters, cyan light trails, drift sparks, ring bursts), `AtmosphereSystem.js` (daylight sky dome, sun, drifting clouds, ambient dust; visual-only).
   - `src/audio/` — `AudioManager.js`, `AudioBridge.js`, `music.js`, `sfx.js` (procedural Web Audio engine/jet synth, drift screech, siren, stunt chimes, synthwave BGM).
   - `src/ui/` — `HUD.js` (English main menu, speedometer, Drive/Flight indicator, stunt popups, pursuit gauge, garage/upgrades, blitz challenges, pause/busted overlays).
 - **Commands**: `npm run dev`, `npm test`, `npm run build`, `npx --yes github:procrastinate-games/game-publisher#v1` (game.json check).

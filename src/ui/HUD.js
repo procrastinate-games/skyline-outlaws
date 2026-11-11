@@ -586,7 +586,7 @@ export class HUD {
           <div>
             <div class="item-title">${ch.title} ${done ? '✓' : ''}</div>
             <div class="item-desc">${ch.description}</div>
-            <div class="item-desc" style="margin-top:4px; color:#00f5d4;">Reward: +$${ch.rewardCredits} CR (${ch.duration}s)</div>
+            <div class="item-desc" style="margin-top:4px; color:#46e0e8;">Reward: +$${ch.rewardCredits} CR (${ch.duration}s)</div>
           </div>
           <button class="hud-btn accent" data-challenge="${ch.id}">START BLITZ</button>
         </div>

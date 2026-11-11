@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CAMERA_CONFIG, GAME } from '../core/Constants.js';
+import { gameState } from '../core/GameState.js';
 
 export class CameraSystem {
   constructor(camera, player, city) {
@@ -12,6 +13,9 @@ export class CameraSystem {
     this.desiredLookAt = new THREE.Vector3();
     this.cameraYaw = 0;
     this.shakeIntensity = 0;
+    this.menuOrbitAngle = 0;
+    this.introTimer = 0;
+    this.wasStarted = false;
   }
 
   reset() {
@@ -39,7 +43,33 @@ export class CameraSystem {
     this.camera.lookAt(this.currentLookAt);
   }
 
+  /** Attract-mode orbit around the parked car while the main menu is open. */
+  updateMenuOrbit(dt) {
+    const p = this.player.position;
+    this.menuOrbitAngle += CAMERA_CONFIG.MENU_ORBIT_SPEED * dt;
+    const a = this.menuOrbitAngle;
+    this.camera.position.set(
+      p.x + Math.sin(a) * CAMERA_CONFIG.MENU_ORBIT_RADIUS,
+      p.y + CAMERA_CONFIG.MENU_ORBIT_HEIGHT,
+      p.z + Math.cos(a) * CAMERA_CONFIG.MENU_ORBIT_RADIUS
+    );
+    this.currentLookAt.set(p.x, p.y + 1.6, p.z);
+    this.camera.lookAt(this.currentLookAt);
+  }
+
   update(dt) {
+    if (!gameState.started) {
+      this.wasStarted = false;
+      this.updateMenuOrbit(dt);
+      return;
+    }
+    if (!this.wasStarted) {
+      // Cinematic swoop from the menu orbit into the chase position
+      this.wasStarted = true;
+      this.introTimer = CAMERA_CONFIG.INTRO_DURATION;
+    }
+    this.introTimer = Math.max(0, this.introTimer - dt);
+
     const p = this.player.position;
     const isFlight = this.player.mode === 'FLIGHT';
 
@@ -69,7 +99,8 @@ export class CameraSystem {
       this.desiredPosition.y = camSurface.height + 1.4;
     }
 
-    this.camera.position.lerp(this.desiredPosition, Math.min(1, CAMERA_CONFIG.POS_SMOOTHING * dt));
+    const posSmoothing = this.introTimer > 0 ? CAMERA_CONFIG.INTRO_POS_SMOOTHING : CAMERA_CONFIG.POS_SMOOTHING;
+    this.camera.position.lerp(this.desiredPosition, Math.min(1, posSmoothing * dt));
 
     // Apply subtle impact camera shake if active
     if (this.shakeIntensity > 0.01) {

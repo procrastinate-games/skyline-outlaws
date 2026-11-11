@@ -36,7 +36,8 @@ src/
 │   ├── CameraSystem.js    # Smooth 3rd-person chase camera with speed FOV, drift lag, and flight pitch tracking
 │   ├── StuntSystem.js     # Detects Big Air, Drift, Sky Rings, Close Calls, Rooftop Landings, Combos
 │   ├── PoliceSystem.js    # Heat level, police cruiser & drone AI, capture vs escape logic
-│   └── ParticleSystem.js  # Jet flames, boost trails, drift sparks, ring burst particles
+│   ├── ParticleSystem.js  # Jet flames, cyan light trails, drift sparks, ring burst particles
+│   └── AtmosphereSystem.js # Daylight sky dome + sun, drifting low-poly clouds, ambient dust (visual-only)
 ├── gameplay/
 │   └── PlayerVehicle.js   # Futuristic sports car 3D model, Drive/Flight transformation & arcade physics
 ├── level/
