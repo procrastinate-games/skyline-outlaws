@@ -87,7 +87,11 @@ export class Game {
     this.player.reset();
     this.stunts.reset();
     this.police.reset();
+    this.city.resetRings();
+    this.particles.reset();
+    this.input.resetTransient();
     this.cameraSystem.reset();
+    this.hud.hideModal();
     this.hud.refreshAll();
     eventBus.emit(Events.GAME_RESTART, {});
   }

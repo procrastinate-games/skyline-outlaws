@@ -23,6 +23,7 @@ export class StuntSystem {
     this.flightDuration = 0;
     this.closeCallCooldown = 0;
     this.closeCallConfirmTimer = 0;
+    this._awardedCurrentJump = false;
   }
 
   handleLanding(data = {}) {
@@ -77,11 +78,21 @@ export class StuntSystem {
       }
     }
 
-    // 3. Sustained High-Speed Flight bonus
-    if (this.player.mode === 'FLIGHT' && this.player.speed > 45 && this.player.position.y > 14) {
+    // 3. Skyline Canyon Run: sustained fast flight weaving *between* towers (below their roofs).
+    //    Cruising above the skyline earns nothing, and the bonus never extends the combo,
+    //    so idling in Flight Mode can't farm points or credits.
+    const inSkylineCanyon =
+      this.player.closestBuildingDist !== undefined &&
+      this.player.closestBuildingDist < STUNTS.CANYON_MAX_BUILDING_DIST;
+    if (
+      this.player.mode === 'FLIGHT' &&
+      this.player.speed > 45 &&
+      this.player.position.y > 14 &&
+      inSkylineCanyon
+    ) {
       this.flightDuration += dt;
       if (this.flightDuration >= STUNTS.MIN_FLIGHT_TIME) {
-        gameState.registerStunt('jet_stream', 'SUPERSONIC FLIGHT!', STUNTS.POINTS.LONG_FLIGHT);
+        gameState.registerStunt('canyon_run', 'SKYLINE CANYON RUN!', STUNTS.POINTS.LONG_FLIGHT, false);
         this.flightDuration = 0;
       }
     } else {

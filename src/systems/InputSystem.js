@@ -49,6 +49,11 @@ export class InputSystem {
     });
   }
 
+  /** Drop one-shot presses (e.g. F tapped while busted) so they don't fire after a restart. */
+  resetTransient() {
+    this.justPressedFlight = false;
+  }
+
   triggerFlightToggle() {
     this.justPressedFlight = true;
     eventBus.emit(Events.AUDIO_INIT);

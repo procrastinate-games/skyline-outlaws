@@ -136,13 +136,7 @@ export class PoliceSystem {
   ensureUnitCount() {
     const heat = gameState.pursuit.heat;
     const targetCount = POLICE.MAX_UNITS_PER_HEAT[heat] || 2;
-    // Flanking / intercept slots relative to player (forward > 0 is in front of player, clearly visible on camera!)
-    const formationSlots = [
-      { forward: 2.5, right: -8.6, spawnForward: 26, spawnRight: -16, isDrone: false },
-      { forward: 7.5, right: 0, spawnForward: 30, spawnRight: 8, isDrone: true, heightOffset: 6.5 },
-      { forward: 2.0, right: 8.6, spawnForward: 24, spawnRight: 16, isDrone: false },
-      { forward: 6.0, right: 6.5, spawnForward: 32, spawnRight: -12, isDrone: true, heightOffset: 8.5 },
-    ];
+    const formationSlots = POLICE.FORMATION;
 
     const heading = this.player.heading || 0;
     const fwdX = -Math.sin(heading);
@@ -156,9 +150,10 @@ export class PoliceSystem {
       const isDrone = slot.isDrone;
       const built = isDrone ? this.buildDroneMesh() : this.buildCruiserMesh();
 
-      // Spawn ahead-diagonal of the player so units visibly sweep in from city avenues
-      const sx = this.player.position.x + fwdX * slot.spawnForward + rightX * slot.spawnRight;
-      const sz = this.player.position.z + fwdZ * slot.spawnForward + rightZ * slot.spawnRight;
+      // Spawn behind the player so units roar up from the rear and visibly chase
+      const spawnForward = -POLICE.SPAWN_BEHIND_DISTANCE;
+      const sx = this.player.position.x + fwdX * spawnForward + rightX * slot.spawnRight;
+      const sz = this.player.position.z + fwdZ * spawnForward + rightZ * slot.spawnRight;
       const sy = isDrone ? Math.max(14, this.player.position.y + (slot.heightOffset || 6.5)) : 0.55;
 
       built.group.position.set(sx, sy, sz);
@@ -170,10 +165,67 @@ export class PoliceSystem {
         leftStrobe: built.leftStrobe,
         rightStrobe: built.rightStrobe,
         speed: isDrone ? POLICE.DRONE_BASE_SPEED : POLICE.CRUISER_BASE_SPEED + idx * 2.5,
-        slotForward: slot.forward,
-        slotRight: slot.right,
+        chaseSlot: slot.chase,
+        boxSlot: slot.box,
         heightOffset: slot.heightOffset || 6.5,
+        heading,
+        currentSpeed: Math.max(0, this.player.speed || 0),
       });
+      built.group.rotation.y = heading;
+    }
+  }
+
+  /**
+   * Car-like pursuit: each unit keeps its own heading and speed, turns at a limited rate
+   * toward its slot behind the player (or a box-in slot when the player is nearly stopped),
+   * falls behind when the player boosts or flies away, and rubber-bands back during normal driving.
+   */
+  steerUnit(unit, dt, playerEscapingFast) {
+    const player = this.player;
+    const playerHeading = player.heading || 0;
+    const fwdX = -Math.sin(playerHeading);
+    const fwdZ = -Math.cos(playerHeading);
+    const rightX = Math.cos(playerHeading);
+    const rightZ = -Math.sin(playerHeading);
+    const playerSpeed = Math.max(0, player.speed || 0);
+
+    const boxingIn = player.mode === 'DRIVE' && playerSpeed < POLICE.BOX_IN_SPEED;
+    const slot = boxingIn ? unit.boxSlot : unit.chaseSlot;
+    const targetX = player.position.x + fwdX * slot.forward + rightX * slot.right;
+    const targetZ = player.position.z + fwdZ * slot.forward + rightZ * slot.right;
+    const toX = targetX - unit.mesh.position.x;
+    const toZ = targetZ - unit.mesh.position.z;
+    const dist = Math.hypot(toX, toZ);
+
+    // Steering: head for the slot, then hold the player's heading once in position
+    const arrived = dist < POLICE.ARRIVE_DISTANCE;
+    const desiredHeading = arrived ? playerHeading : Math.atan2(-toX, -toZ);
+    let diff = desiredHeading - unit.heading;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    const maxTurn = POLICE.TURN_RATE * dt;
+    unit.heading += Math.max(-maxTurn, Math.min(maxTurn, diff));
+
+    // Throttle: full pursuit speed when far, ease into the player's pace when close
+    const heatSpeedBoost = 1 + (gameState.pursuit.heat - 1) * 0.08;
+    let maxSpeed = unit.speed * heatSpeedBoost;
+    if (!playerEscapingFast && player.mode === 'DRIVE' && dist > POLICE.CATCHUP_DISTANCE) {
+      maxSpeed = Math.max(maxSpeed, playerSpeed * POLICE.CATCHUP_SPEED_MULT);
+    }
+    const closingSpeed = playerSpeed + dist * POLICE.CLOSING_GAIN;
+    const cornering = Math.max(POLICE.MIN_CORNER_SPEED_FACTOR, Math.cos(diff));
+    const targetSpeed = Math.min(maxSpeed, closingSpeed) * cornering;
+    const accelStep = POLICE.ACCELERATION * dt;
+    unit.currentSpeed += Math.max(-accelStep * 1.5, Math.min(accelStep, targetSpeed - unit.currentSpeed));
+
+    unit.mesh.position.x += -Math.sin(unit.heading) * unit.currentSpeed * dt;
+    unit.mesh.position.z += -Math.cos(unit.heading) * unit.currentSpeed * dt;
+
+    // Settle gently into the slot once arrived so units don't orbit around it
+    if (arrived) {
+      const settle = Math.min(1, POLICE.SETTLE_RATE * dt);
+      unit.mesh.position.x += (targetX - unit.mesh.position.x) * settle;
+      unit.mesh.position.z += (targetZ - unit.mesh.position.z) * settle;
     }
   }
 
@@ -231,12 +283,6 @@ export class PoliceSystem {
 
     let minUnitDist = Infinity;
     const strobeToggle = Math.floor(this.strobeClock) % 2 === 0;
-    const playerHeading = this.player.heading || 0;
-    const fwdX = -Math.sin(playerHeading);
-    const fwdZ = -Math.cos(playerHeading);
-    const rightX = Math.cos(playerHeading);
-    const rightZ = -Math.sin(playerHeading);
-
     const playerEscapingFast =
       this.player.isBoosting ||
       (this.player.mode === 'FLIGHT' && this.player.position.y > 14 && this.player.speed > 45);
@@ -246,31 +292,7 @@ export class PoliceSystem {
       unit.leftStrobe.visible = strobeToggle;
       unit.rightStrobe.visible = !strobeToggle;
 
-      // Tactical visible flanking/boxing-in pocket around the player
-      const targetX = this.player.position.x + fwdX * unit.slotForward + rightX * unit.slotRight;
-      const targetZ = this.player.position.z + fwdZ * unit.slotForward + rightZ * unit.slotRight;
-
-      const toTargetX = targetX - unit.mesh.position.x;
-      const toTargetZ = targetZ - unit.mesh.position.z;
-      const distToTarget = Math.hypot(toTargetX, toTargetZ);
-
-      const heatSpeedBoost = 1 + (gameState.pursuit.heat - 1) * 0.08;
-      let maxUnitSpeed = unit.speed * heatSpeedBoost;
-      if (!playerEscapingFast && this.player.mode === 'DRIVE' && distToTarget > 16) {
-        // Gentle catch-up during normal ground driving so police stay engaged until you boost or take flight
-        maxUnitSpeed = Math.max(maxUnitSpeed, Math.min(maxUnitSpeed * 1.15, Math.abs(this.player.speed) * 0.99));
-      }
-
-      if (distToTarget > 0.5) {
-        const dirX = toTargetX / distToTarget;
-        const dirZ = toTargetZ / distToTarget;
-        const approachFactor = Math.min(1, distToTarget / 8);
-        const matchPlayerSpeed = Math.min(Math.abs(this.player.speed) * 1.02, maxUnitSpeed);
-        const desiredSpeed = Math.max(matchPlayerSpeed, maxUnitSpeed * approachFactor);
-        const step = Math.min(distToTarget, desiredSpeed * dt);
-        unit.mesh.position.x += dirX * step;
-        unit.mesh.position.z += dirZ * step;
-      }
+      this.steerUnit(unit, dt, playerEscapingFast);
 
       // Enforce minimum standoff distance from player so police never slam into the player
       const dxFromPlayer = unit.mesh.position.x - this.player.position.x;
@@ -312,17 +334,17 @@ export class PoliceSystem {
         this.city.resolveHorizontalCollision(unit.mesh.position, 1.8);
       }
 
-      // Face along pursuit velocity / toward player
-      const lookDx = this.player.position.x - unit.mesh.position.x;
-      const lookDz = this.player.position.z - unit.mesh.position.z;
-      const lookDy = this.player.position.y - unit.mesh.position.y;
-      const fullDist = Math.hypot(lookDx, lookDy, lookDz);
+      // Face the direction the unit is driving (never broadside toward the player)
+      unit.mesh.rotation.y = unit.heading;
 
+      const fullDist = Math.hypot(
+        this.player.position.x - unit.mesh.position.x,
+        this.player.position.y - unit.mesh.position.y,
+        this.player.position.z - unit.mesh.position.z
+      );
       if (fullDist < minUnitDist) {
         minUnitDist = fullDist;
       }
-
-      unit.mesh.rotation.y = Math.atan2(-lookDx, -lookDz);
     }
 
     // Determine if player is in sight of police or escaping

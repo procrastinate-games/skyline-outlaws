@@ -101,6 +101,19 @@ export class ParticleSystem {
     }
   }
 
+  reset() {
+    this.spawnAccumulator = 0;
+    this.dummy.position.set(0, -100, 0);
+    this.dummy.rotation.set(0, 0, 0);
+    this.dummy.scale.setScalar(0.001);
+    this.dummy.updateMatrix();
+    for (let i = 0; i < this.maxParticles; i++) {
+      this.particles[i].active = false;
+      this.instancedMesh.setMatrixAt(i, this.dummy.matrix);
+    }
+    this.instancedMesh.instanceMatrix.needsUpdate = true;
+  }
+
   update(dt) {
     this.spawnAccumulator += dt;
 
@@ -113,18 +126,28 @@ export class ParticleSystem {
       const backZ = Math.cos(h) * 2.4;
 
       if (this.player.mode === 'FLIGHT' || this.player.isBoosting) {
-        const color = this.player.isBoosting ? 0xffbe0b : 0x00f5d4;
-        this.spawnParticle(
-          p.x + backX + (Math.random() - 0.5) * 0.8,
-          p.y + 0.45,
-          p.z + backZ + (Math.random() - 0.5) * 0.8,
-          backX * 2.5,
-          (Math.random() - 0.5) * 2,
-          backZ * 2.5,
-          color,
-          0.35,
-          1.2
-        );
+        // Thin jet-exhaust streaks from both nozzles (boost = hot gold, cruise = thruster color)
+        const color = this.player.isBoosting
+          ? COLORS.RING_GOLD
+          : this.player.accentMaterial
+            ? this.player.accentMaterial.color.getHex()
+            : COLORS.ROAD_LINE_CYAN;
+        const nozzleX = Math.cos(h) * 0.52;
+        const nozzleZ = -Math.sin(h) * 0.52;
+        for (const side of [-1, 1]) {
+          this.spawnParticle(
+            p.x + backX * 1.25 + nozzleX * side,
+            p.y - 0.05 + (Math.random() - 0.5) * 0.15,
+            p.z + backZ * 1.25 + nozzleZ * side,
+            backX * 2.2,
+            0,
+            backZ * 2.2,
+            color,
+            VISUALS.EXHAUST_LIFE,
+            VISUALS.EXHAUST_SCALE,
+            { stretch: VISUALS.EXHAUST_STRETCH, flatten: VISUALS.EXHAUST_FLATTEN, rotY: h }
+          );
+        }
       }
 
       // Neon thruster light trails streaming from the rear wheels (reference-style cyan ribbons)
@@ -160,7 +183,7 @@ export class ParticleSystem {
           (Math.random() - 0.5) * 5,
           0xff9e00,
           0.3,
-          0.95
+          VISUALS.DRIFT_SPARK_SCALE
         );
       }
     }

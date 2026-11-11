@@ -131,6 +131,11 @@ export const VISUALS = {
   TAIL_TRAIL_LIFE: 0.5,
   PARTICLE_OPACITY: 0.72,
   BURST_PARTICLE_SCALE: 0.75,
+  EXHAUST_LIFE: 0.22,
+  EXHAUST_SCALE: 0.55,
+  EXHAUST_STRETCH: 4.5,
+  EXHAUST_FLATTEN: 0.6,
+  DRIFT_SPARK_SCALE: 0.55,
   TAIL_TRAIL_SCALE: 0.9,
   TAIL_TRAIL_STRETCH: 8.5,
   TAIL_TRAIL_FLATTEN: 0.35,
@@ -299,6 +304,7 @@ export const STUNTS = {
   MIN_DRIFT_SPEED: 20,
   MIN_AIR_TIME: 0.75,
   MIN_FLIGHT_TIME: 2.5,
+  CANYON_MAX_BUILDING_DIST: 22,
   CLOSE_CALL_DIST: 5.8,
   CLOSE_CALL_COOLDOWN: 1.3,
   POINTS: {
@@ -328,6 +334,24 @@ export const POLICE = {
   CRUISER_BASE_SPEED: 68,
   DRONE_BASE_SPEED: 64,
   MAX_UNITS_PER_HEAT: [0, 2, 3, 4],
+  // Car-like pursuit steering
+  TURN_RATE: 3.0,
+  ACCELERATION: 42,
+  ARRIVE_DISTANCE: 4,
+  SETTLE_RATE: 2.5,
+  CLOSING_GAIN: 1.6,
+  MIN_CORNER_SPEED_FACTOR: 0.35,
+  CATCHUP_DISTANCE: 12,
+  CATCHUP_SPEED_MULT: 1.18,
+  BOX_IN_SPEED: 12,
+  SPAWN_BEHIND_DISTANCE: 42,
+  // forward < 0 is behind the player; `box` slots surround a (nearly) stopped player
+  FORMATION: [
+    { isDrone: false, chase: { forward: -3, right: -7.5 }, box: { forward: 4, right: -7.5 }, spawnRight: -10 },
+    { isDrone: true, chase: { forward: -4, right: 0 }, box: { forward: 0, right: 0 }, spawnRight: 0, heightOffset: 7 },
+    { isDrone: false, chase: { forward: -11, right: 2.5 }, box: { forward: -3, right: 7.8 }, spawnRight: 10 },
+    { isDrone: true, chase: { forward: -7, right: 6 }, box: { forward: -6, right: -6 }, spawnRight: 14, heightOffset: 9 },
+  ],
 };
 
 export const CHALLENGES = [

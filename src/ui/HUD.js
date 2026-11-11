@@ -7,6 +7,7 @@ export class HUD {
     this.rootEl = rootEl;
     this.game = game;
     this.stuntTimeout = null;
+    this.currentModal = null;
 
     this.buildDOM();
     this.bindEvents();
@@ -160,6 +161,8 @@ export class HUD {
         } else if (e.code === 'KeyV') {
           if (!gameState.started) this.game.startPlay();
           this.game.police.startPursuit(Math.min(3, (gameState.pursuit.heat || 0) + 1));
+        } else if (gameState.busted && this.currentModal === 'busted' && ['Enter', 'Space'].includes(e.code)) {
+          this.game.restartRun();
         } else if (
           !gameState.started &&
           ['Enter', 'Space', 'KeyW', 'ArrowUp'].includes(e.code)
@@ -262,25 +265,38 @@ export class HUD {
     eventBus.on(Events.AUDIO_TOGGLE_MUTE, () => this.refreshMuteButton());
     eventBus.on(Events.CHALLENGE_COMPLETED, (data) => {
       this.showStuntPopup({
-        label: `CHALLENGE WON! +$${data.reward}`,
-        points: data.reward,
-        combo: gameState.combo,
+        label: 'BLITZ COMPLETE!',
+        detail: `+$${data.reward} CREDITS`,
       });
     });
+    eventBus.on(Events.CHALLENGE_FAILED, () => {
+      this.showStuntPopup({
+        label: 'BLITZ FAILED',
+        detail: 'TIME UP — PRESS [C] TO RETRY',
+        failed: true,
+      });
+    });
+    eventBus.on(Events.GAME_RESTART, () => this.clearStuntPopup());
   }
 
   showStuntPopup(entry) {
     const feed = this.container.querySelector('#hud-stunt-feed');
     if (!feed) return;
+    const detail = entry.detail ?? `+${entry.points} (x${entry.combo})`;
     feed.innerHTML = `
-      <div class="stunt-popup">
-        ${entry.label} <span style="font-size:14px;">+${entry.points} (x${entry.combo})</span>
+      <div class="stunt-popup ${entry.failed ? 'failed' : ''}">
+        ${entry.label} <span style="font-size:14px;">${detail}</span>
       </div>
     `;
     clearTimeout(this.stuntTimeout);
-    this.stuntTimeout = setTimeout(() => {
-      if (feed) feed.innerHTML = '';
-    }, 1800);
+    this.stuntTimeout = setTimeout(() => this.clearStuntPopup(), entry.failed ? 2800 : 1800);
+  }
+
+  clearStuntPopup() {
+    clearTimeout(this.stuntTimeout);
+    this.stuntTimeout = null;
+    const feed = this.container.querySelector('#hud-stunt-feed');
+    if (feed) feed.innerHTML = '';
   }
 
   refreshMuteButton() {
@@ -382,10 +398,22 @@ export class HUD {
 
   hideModal() {
     this.modalBackdrop.classList.add('hidden');
+    this.currentModal = null;
     gameState.paused = false;
   }
 
+  /** Close Garage/Challenges: return to the Busted screen if the run is over, else resume. */
+  closeOverlay() {
+    if (gameState.busted) {
+      this.showBustedModal();
+      return;
+    }
+    this.hideModal();
+    if (!gameState.started) this.game.startPlay();
+  }
+
   showMainMenu() {
+    this.currentModal = 'menu';
     gameState.paused = false;
     this.modalBackdrop.classList.remove('hidden');
     const currentCar = VEHICLES[gameState.selectedVehicle] || VEHICLES.apex;
@@ -425,12 +453,17 @@ export class HUD {
   }
 
   togglePauseModal() {
-    if (!gameState.started || gameState.busted) return;
+    if (gameState.busted) {
+      if (this.currentModal !== 'busted') this.closeOverlay();
+      return;
+    }
+    if (!gameState.started) return;
     if (!this.modalBackdrop.classList.contains('hidden')) {
       this.hideModal();
       return;
     }
     gameState.paused = true;
+    this.currentModal = 'pause';
     this.modalBackdrop.classList.remove('hidden');
     this.modalPanel.innerHTML = `
       <span class="title-badge">GAME PAUSED</span>
@@ -451,6 +484,7 @@ export class HUD {
   }
 
   showBustedModal() {
+    this.currentModal = 'busted';
     this.modalBackdrop.classList.remove('hidden');
     this.modalPanel.innerHTML = `
       <span class="title-badge">INTERCEPTED BY METRO POLICE</span>
@@ -484,6 +518,7 @@ export class HUD {
 
   showGarageModal() {
     gameState.paused = true;
+    this.currentModal = 'garage';
     this.modalBackdrop.classList.remove('hidden');
 
     const vehicleCards = Object.values(VEHICLES)
@@ -538,7 +573,7 @@ export class HUD {
       <div class="grid-list">${upgradeCards}</div>
       <div class="score-label" style="margin-top:10px;">CHASSIS & THRUSTER LIVERY</div>
       <div style="display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 16px;">${paintCards}</div>
-      <button class="primary-cta" id="garage-close-btn">BACK TO STREETS</button>
+      <button class="primary-cta" id="garage-close-btn">${gameState.busted ? 'BACK' : 'BACK TO STREETS'}</button>
     `;
 
     this.modalPanel.querySelectorAll('[data-car]').forEach((btn) => {
@@ -569,14 +604,12 @@ export class HUD {
       });
     });
 
-    this.modalPanel.querySelector('#garage-close-btn').addEventListener('click', () => {
-      this.hideModal();
-      if (!gameState.started) this.game.startPlay();
-    });
+    this.modalPanel.querySelector('#garage-close-btn').addEventListener('click', () => this.closeOverlay());
   }
 
   showChallengesModal() {
     gameState.paused = true;
+    this.currentModal = 'challenges';
     this.modalBackdrop.classList.remove('hidden');
 
     const cards = CHALLENGES.map((ch) => {
@@ -598,7 +631,7 @@ export class HUD {
       <h2 class="modal-title">OUTLAW BLITZ CHALLENGES</h2>
       <p class="modal-subtitle">Test your driving and flight skills in rapid high-reward city challenges, or close to continue free-roam exploration.</p>
       <div class="grid-list" style="margin-bottom:16px;">${cards}</div>
-      <button class="primary-cta" id="challenges-close-btn">FREE ROAM PLAYGROUND</button>
+      <button class="primary-cta" id="challenges-close-btn">${gameState.busted ? 'BACK' : 'FREE ROAM PLAYGROUND'}</button>
     `;
 
     this.modalPanel.querySelectorAll('[data-challenge]').forEach((btn) => {
@@ -608,9 +641,6 @@ export class HUD {
       });
     });
 
-    this.modalPanel.querySelector('#challenges-close-btn').addEventListener('click', () => {
-      this.hideModal();
-      if (!gameState.started) this.game.startPlay();
-    });
+    this.modalPanel.querySelector('#challenges-close-btn').addEventListener('click', () => this.closeOverlay());
   }
 }

@@ -552,6 +552,13 @@ export class CityBuilder {
     this.root.add(rocks);
   }
 
+  resetRings() {
+    for (const ring of this.skyRings) {
+      ring.cooldown = 0;
+      ring.mesh.scale.setScalar(1);
+    }
+  }
+
   update(dt, elapsedTime = 0) {
     for (const ring of this.skyRings) {
       if (ring.cooldown > 0) {

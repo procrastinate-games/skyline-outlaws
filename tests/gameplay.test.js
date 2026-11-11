@@ -221,3 +221,135 @@ test('state reset, upgrades, and localStorage persistence', () => {
     assert.equal(gameState.upgrades.topSpeed, 1);
   }
 });
+
+const idleFlightInput = {
+  throttle: 1,
+  brake: 0,
+  steer: 0,
+  drift: false,
+  boost: false,
+  pitch: 0,
+  flightToggleJustPressed: false,
+};
+
+test('idle flight above the skyline cannot farm points or combo', () => {
+  eventBus.removeAll();
+  gameState.reset();
+  gameState.started = true;
+
+  const scene = new THREE.Scene();
+  const city = new CityBuilder(scene);
+  const player = new PlayerVehicle(scene, city);
+  const stunts = new StuntSystem(player, city);
+
+  player.toggleMode('FLIGHT');
+  player.position.set(0, 150, 120);
+  player.pitchAngle = 0;
+
+  for (let i = 0; i < 300; i++) {
+    player.update(0.1, idleFlightInput);
+    stunts.update(0.1);
+  }
+
+  assert.equal(gameState.score, 0, `AFK flight above the skyline should not score, got ${gameState.score}`);
+  assert.equal(gameState.combo, 1);
+});
+
+test('skyline canyon run rewards weaving between towers without extending the combo', () => {
+  eventBus.removeAll();
+  gameState.reset();
+  gameState.started = true;
+
+  const scene = new THREE.Scene();
+  const city = new CityBuilder(scene);
+  const player = new PlayerVehicle(scene, city);
+  const stunts = new StuntSystem(player, city);
+
+  player.mode = 'FLIGHT';
+  player.speed = 70;
+  player.position.set(0, 30, 0);
+  player.closestBuildingDist = 10;
+  for (let i = 0; i < 30; i++) stunts.update(0.1);
+
+  assert.ok(gameState.score > 0, 'Canyon run should award points');
+  assert.equal(gameState.combo, 1, 'Canyon run must not bump the combo multiplier');
+});
+
+test('police cruisers chase from behind and drive along their heading', () => {
+  eventBus.removeAll();
+  gameState.reset();
+  gameState.started = true;
+
+  const scene = new THREE.Scene();
+  const city = new CityBuilder(scene);
+  const player = new PlayerVehicle(scene, city);
+  const police = new PoliceSystem(scene, player, city);
+  police.graceTimer = 0;
+
+  // Cruise north up Neon Boulevard at a steady speed
+  player.position.set(0, 0.6, 300);
+  player.heading = 0;
+  player.speed = 40;
+  police.startPursuit(1);
+
+  const fwd = { x: -Math.sin(player.heading), z: -Math.cos(player.heading) };
+  for (const unit of police.units) {
+    const along = (unit.mesh.position.x - player.position.x) * fwd.x + (unit.mesh.position.z - player.position.z) * fwd.z;
+    assert.ok(along < 0, `Units should spawn behind the player, got along=${along}`);
+  }
+
+  for (let i = 0; i < 60; i++) {
+    player.position.z -= player.speed * 0.05;
+    police.update(0.05);
+  }
+
+  const cruisers = police.units.filter((u) => u.type === 'cruiser');
+  assert.ok(cruisers.length >= 1);
+  for (const unit of cruisers) {
+    let diff = unit.mesh.rotation.y - player.heading;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    assert.ok(Math.abs(diff) < 0.5, `Cruiser should face the chase direction, not sideways (diff=${diff})`);
+    const dist = Math.hypot(unit.mesh.position.x - player.position.x, unit.mesh.position.z - player.position.z);
+    assert.ok(dist < POLICE.DETECTION_RADIUS, `Cruiser should keep up with a cruising player (dist=${dist})`);
+  }
+
+  // Boosting well past cruiser top speed opens a gap
+  const before = Math.min(...cruisers.map((u) => Math.hypot(u.mesh.position.x - player.position.x, u.mesh.position.z - player.position.z)));
+  player.isBoosting = true;
+  player.speed = 105;
+  for (let i = 0; i < 60; i++) {
+    player.position.z -= player.speed * 0.05;
+    if (player.position.z < -370) player.position.z = 370;
+    police.update(0.05);
+  }
+  const after = Math.min(...cruisers.map((u) => Math.hypot(u.mesh.position.x - player.position.x, u.mesh.position.z - player.position.z)));
+  assert.ok(after > before + 10, `Boosting should open a gap on the cruisers (${before} -> ${after})`);
+});
+
+test('restart helpers clear rings, particles and pending flight toggles', async () => {
+  eventBus.removeAll();
+  gameState.reset();
+
+  const { ParticleSystem } = await import('../src/systems/ParticleSystem.js');
+  const { InputSystem } = await import('../src/systems/InputSystem.js');
+
+  const scene = new THREE.Scene();
+  const city = new CityBuilder(scene);
+  const player = new PlayerVehicle(scene, city);
+  const particles = new ParticleSystem(scene, player);
+  const input = new InputSystem();
+
+  city.skyRings[0].cooldown = 4;
+  city.resetRings();
+  assert.equal(city.skyRings[0].cooldown, 0);
+
+  particles.spawnBurst(player.position, 0xffffff, 12);
+  assert.ok(particles.particles.some((p) => p.active));
+  particles.reset();
+  assert.ok(particles.particles.every((p) => !p.active));
+
+  input.triggerFlightToggle();
+  input.resetTransient();
+  assert.equal(input.getSnapshot('DRIVE').flightToggleJustPressed, false);
+});

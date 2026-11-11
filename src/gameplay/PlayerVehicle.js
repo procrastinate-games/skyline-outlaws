@@ -249,6 +249,10 @@ export class PlayerVehicle {
     this.justCollidedTimer = 0;
     this.closestBuildingDist = Infinity;
 
+    if (this.leftWing && this.rightWing) {
+      this.leftWing.scale.x = 0.15;
+      this.rightWing.scale.x = 0.15;
+    }
     this.refreshAppearance();
     this.syncMeshTransform();
   }

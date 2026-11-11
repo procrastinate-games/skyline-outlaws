@@ -263,6 +263,10 @@ canvas {
   animation: popIn 0.28s cubic-bezier(0.18, 0.89, 0.32, 1.28);
 }
 
+.stunt-popup.failed {
+  color: var(--accent-coral);
+}
+
 .stunt-popup span {
   display: block;
   margin-top: 2px;
